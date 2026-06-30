@@ -1,0 +1,45 @@
+{
+  "$schema": "https://opencode.ai/config.json",
+  "instructions": [
+    "docs/SDD.md",
+    ".opencode/workflow.md"
+  ],
+  "agent": {
+    "orquestador": {
+      "mode": "primary",
+      "description": "Orquestador SDD — planificación estructurada con mentor pedagógico para BiblioCat",
+      "prompt": "{file:./workflow.md}",
+      "permission": {
+        "task": {
+          "*": "allow"
+        },
+        "write": "allow",
+        "edit": "allow",
+        "bash": "allow"
+      }
+    }
+  },
+  "references": {
+    "api": {
+      "path": "../api",
+      "description": "Módulo API Spring Boot — lógica de dominio y persistencia"
+    },
+    "agent": {
+      "path": "../agent",
+      "description": "Módulo Agent — monitoreo de filesystem y sincronización"
+    },
+    "front": {
+      "path": "../front",
+      "description": "Módulo Frontend — interfaz de usuario React"
+    }
+  },
+  "mcp": {
+    "context7": {
+      "type": "remote",
+      "url": "https://mcp.context7.com/mcp",
+      "headers": {
+        "CONTEXT7_API_KEY": "{env:CONTEXT7_API_KEY}"
+      }
+    }
+  }
+}
