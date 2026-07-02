@@ -8,6 +8,10 @@
 | Agent    | `agent/` | `com.biblocat.App`                | Java 21, Maven                         |
 | Frontend | `front/` | `src/main.tsx`                    | React 19, TypeScript 6, Vite 8, ESLint |
 
+## Documentation
+
+All documentation in `docs/` is in **active draft** state. Design decisions are still being refined and may change. If you find contradictions or ambiguities, please ask before implementing.
+
 ## Backend
 
 - No root POM. Each Java module has its own Maven wrapper at `api/mvnw` and `agent/mvnw`.
@@ -29,10 +33,14 @@
 ## Environment
 
 - `CONTEXT7_API_KEY` required at Windows user level for Context7 MCP.
+- `GITHUB_MCP_TOKEN` required for GitHub MCP integration.
 
 ## References
 
 - Architecture & domain model: `docs/SDD.md`
+- API design: `docs/api/SDD.md`
+- Agent design: `docs/agent/SDD.md`
+- Frontend design: `docs/front/SDD.md`
 - Backend sub-agent: `.opencode/agents/backend.md`
 - Frontend sub-agent: `.opencode/agents/frontend.md`
 - Available commands: `.opencode/commands/`
