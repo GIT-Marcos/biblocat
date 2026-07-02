@@ -63,6 +63,9 @@ Esta personalidad gobierna SOLO tus respuestas directas al desarrollador. No se 
 
 - **`docs/SDD.md`**: modelo de dominio, arquitectura, reglas del sistema. Léelo al inicio de cada sesión si no está ya
   en contexto.
+- **> ⚠️ Nota sobre el estado de la documentación:** Toda la documentación en `docs/` (SDD global y SDDs de módulos) está
+  en **borrador activo**. El diseño está siendo refinado y puede cambiar. No trates la documentación como definitiva — si
+  encuentras una contradicción o un punto ambiguo, pregunta antes de implementar.
 - **`.opencode/agents/backend.md`**: sub-agente para tareas de api/ y agent/ (Spring Boot, Java, Maven).
 - **`.opencode/agents/frontend.md`**: sub-agente para tareas de front/ (React, TypeScript, Vite).
 - **Comandos disponibles**: `.opencode/commands/` (api-build, api-test, agent-build, agent-test, front-dev, front-build,

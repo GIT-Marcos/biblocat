@@ -1,341 +1,556 @@
-# Sistema de Catalogación de Biblioteca Personal (SDD)
+# BiblioCat — Software Design Description
 
-Este es el SDD general del sistema. Para detalle sobre cada implementación de sus módulos (API, front-end, agente)
-revisar sus respectivos SDD.
+## Document Control
 
-## Versión
+| Property        | Value                                         |
+|-----------------|-----------------------------------------------|
+| **Version**     | 1.0                                           |
+| **Status**      | Draft — initial definition for implementation |
+| **Last update** | 2026-07-01                                    |
 
-1.0
+### Revision history
 
-## Estado
-
-Definición inicial para implementación
-
----
-
-# 1. Propósito
-
-Este sistema permite catalogar y gestionar una biblioteca personal de archivos PDF y EPUB almacenados localmente en el
-sistema de archivos.
-
-El sistema no almacena archivos, únicamente metadatos y referencias al filesystem.
+| Date       | Version | Description   | Author |
+|------------|---------|---------------|--------|
+| 2026-07-01 | 1.0     | Initial draft | —      |
 
 ---
 
-# 2. Principios de arquitectura
+## 1. Introduction
 
-## 2.1 Separación de responsabilidades
+### 1.1 Purpose
 
-- API → lógica de dominio, persistencia y exposición REST
-- Agent → sincronización con filesystem local
-- Frontend → interfaz de usuario
-- Base de datos → almacenamiento de metadatos
+BiblioCat is a personal library catalog system. It allows users to catalog and manage PDF, EPUB and MHTML files stored
+on their local filesystem. The system does **not** store files — it only stores metadata and filesystem references.
+
+This document describes the system-level architecture, component decomposition, data model, behavior flows, interface
+contracts, and design rationale. It is the authoritative reference for how BiblioCat is built.
+
+Module-specific design details are covered in separate documents:
+
+| Module   | Document            |
+|----------|---------------------|
+| API      | `docs/api/SDD.md`   |
+| Agent    | `docs/agent/SDD.md` |
+| Frontend | `docs/front/SDD.md` |
+
+### 1.2 Scope
+
+This document covers:
+
+- System architecture principles and constraints
+- Component responsibilities and boundaries
+- Domain model and data rules
+- Behavioral flows (CRUD, sync, reconciliation)
+- Inter-component communication contracts
+- Key design decisions and their rationale
+- Evolution roadmap
+
+It does **not** cover:
+
+- Detailed REST endpoint specifications → see `docs/api/SDD.md`
+- WatchService implementation details → see `docs/agent/SDD.md`
+- UI component trees or state management → see `docs/front/SDD.md`
+- Requirements specification → tracked in project issues
+
+### 1.3 Glossary
+
+| Term                | Definition                                                                                             |
+|---------------------|--------------------------------------------------------------------------------------------------------|
+| **Source**          | A file (PDF, EPUB, or MHTML) discovered in the library directory and represented as a database record. |
+| **Agent**           | Java daemon that monitors the filesystem via WatchService and communicates changes to the API.         |
+| **API**             | Spring Boot application exposing REST endpoints, managing persistence and domain logic.                |
+| **Frontend**        | React application providing the user interface.                                                        |
+| **Reconciliation**  | Process of synchronizing the database state with the current filesystem state via a full scan.         |
+| **WatchService**    | Java NIO mechanism for detecting filesystem events (create, delete, modify) in real time.              |
+| **Filesystem (FS)** | The local directory containing the user's library files. The single source of truth.                   |
+| **Source format**   | The file type discriminator: PDF, EPUB, or MHTML.                                                      |
+| **Tag**             | User-assigned label for categorizing sources.                                                          |
 
 ---
 
-## 2.2 Fuente de verdad
+## 2. System Architecture
 
-El sistema de archivos local es la única fuente de verdad para los documentos.
+### 2.1 Architecture Principles
 
-La base de datos refleja el estado del filesystem.
+1. **Separation of responsibilities** — Each component has a well-defined concern:
+    - API → domain logic, persistence, REST exposure
+    - Agent → filesystem monitoring and synchronization
+    - Frontend → user interface
+    - Database → passive metadata storage
+
+2. **Filesystem as source of truth** — The local filesystem is the authoritative record for which documents exist. The
+   database is a reflection, not an independent store.
+
+3. **API as single source of business logic** — All domain logic, validation, and persistence decisions reside in the
+   API. No other component may duplicate this logic.
+
+4. **No direct FS access from API or Frontend** — Only the Agent interacts with the filesystem. This prevents locking,
+   path confusion, and duplicate detection logic.
+
+5. **Agent as sensor, not actor** — The Agent detects changes and reports them. It does not download, convert, enrich,
+   or modify files.
+
+### 2.2 Source of Truth
+
+> **The filesystem is the truth.**  
+> **The API is the interpretation.**  
+> **The frontend is the visualization.**  
+> **The agent is the sensor.**
+
+- When a file is added to the library directory, the system must reflect it.
+- When a file is deleted from the library directory, the system must remove its record.
+- When a file is renamed or moved, the system must treat it as a deletion of the old path and creation of a new one (V1
+  semantics).
+- The system never creates, modifies, or deletes files on the filesystem.
+
+### 2.3 System Context
+
+```
+┌──────────┐     HTTP      ┌─────────┐     JDBC      ┌──────────┐
+│  Agent   │ ──────────▶   │   API   │ ◀──────────▶  │    DB    │
+│ (Java)   │ ◀──────────   │ (Spring)│               │ (Postgres)│
+└──────────┘               └─────────┘               └──────────┘
+                               │ ▲
+                               │ │ HTTP
+                               ▼ │
+                           ┌─────────┐
+                           │ Frontend│
+                           │ (React) │
+                           └─────────┘
+```
+
+- Agent ↔ API: HTTP REST (bidirectional)
+- Frontend ↔ API: HTTP REST (bidirectional)
+- Frontend ↛ Agent: **prohibited**
+- API ↛ filesystem: **prohibited**
+
+### 2.4 Technology Stack
+
+| Layer                   | Technology      | Version |
+|-------------------------|-----------------|---------|
+| API framework           | Spring Boot     | 4.1     |
+| API language            | Java            | 21      |
+| API build               | Maven (wrapped) | —       |
+| API database migrations | Flyway          | —       |
+| Agent language          | Java            | 21      |
+| Agent build             | Maven (wrapped) | —       |
+| Frontend framework      | React           | 19      |
+| Frontend language       | TypeScript      | 6       |
+| Frontend bundler        | Vite            | 8       |
+| Frontend linter         | ESLint          | —       |
+| Database                | PostgreSQL      | —       |
+
+### 2.5 Constraints
+
+| Constraint                 | Rationale                                                        |
+|----------------------------|------------------------------------------------------------------|
+| No microservices           | The system is simple; a monorepo with 3 components is sufficient |
+| No full-text search        | File content search is out of scope for V1                       |
+| No embeddings or AI        | Not needed for a metadata-only catalog                           |
+| No URL downloader          | The Agent is a sensor, not a content fetcher                     |
+| Low operational complexity | Target: single-developer maintenance                             |
+| Low resource consumption   | Must run on modest hardware                                      |
 
 ---
 
-## 2.3 Comunicación entre componentes
+## 3. Component Decomposition
 
-- Agent ↔ API: HTTP REST
-- Frontend ↔ API: HTTP REST
-- Frontend ↛ Agent: prohibido
-- API ↛ filesystem: prohibido
+### 3.1 API
+
+The API is a Spring Boot application that exposes REST endpoints, manages database persistence via JPA and Flyway, and
+coordinates synchronization events from the Agent.
+
+#### Responsibilities
+
+- Persist and query metadata in PostgreSQL
+- Manage the domain model (sources, authors, tags, formats)
+- Expose REST endpoints for CRUD and search
+- Accept synchronization events from the Agent
+- Execute Flyway migrations on startup
+- Validate all incoming data
+
+#### Restrictions
+
+- Must not access the filesystem
+- Must not run WatchService
+- Must not contain local synchronization logic
+
+### 3.2 Agent
+
+The Agent is a standalone Java daemon that monitors the filesystem, detects changes (create, delete, rename), and
+communicates them to the API over HTTP.
+
+#### Responsibilities
+
+- Monitor the library directory via WatchService (real time)
+- Perform a full scan on first startup
+- Detect file creation, deletion, and rename/move events
+- Parse the folder structure to infer authors
+- Send change notifications to the API
+- Accept reconciliation trigger requests
+
+#### Restrictions
+
+- Must not access the database directly
+- Must not contain domain logic
+- Must not expose a user interface
+- Must not download, convert, or generate files
+
+#### Filesystem Structure
+
+```
+Biblioteca/                     ← library root
+├── Autor/                      ← author level (optional)
+│   ├── obra.pdf
+│   └── obra.epub
+├── OtroAutor/
+│   └── documento.pdf
+└── documento_sin_autor.mhtml   ← no author
+```
+
+- Level 1: author directory (optional). If present, used to infer `author_id`.
+- Level 2: files. Only `.pdf`, `.epub`, `.mhtml` are cataloged.
+- Empty author directories → create author record without sources.
+- Files directly in the library root → author = null.
+
+### 3.3 Frontend
+
+The Frontend is a React application that provides the user interface for browsing, searching, and managing the catalog.
+
+#### Responsibilities
+
+- Display sources with their metadata (author, tags, format, etc.)
+- Provide search and filter capabilities
+- Allow manual management of authors, tags, and formats
+- Trigger manual reconciliation
+
+#### Restrictions
+
+- Must not contain business logic
+- Must not access the filesystem
+- Must not communicate directly with the Agent
+
+### 3.4 Database
+
+PostgreSQL managed by Flyway within the API component.
+
+- Not an independent project
+- Passive storage — no triggers, no application logic
+- Managed exclusively by the API's Flyway migrations
 
 ---
 
-## 2.4 Arquitectura monorepo
+## 4. Data Model
 
-El proyecto se organiza como un monorepo:
+### 4.1 Entity-Relationship Overview
 
+```
+┌──────────┐       ┌───────────┐       ┌──────────┐
+│  authors │       │  sources  │       │   tags   │
+├──────────┤       ├───────────┤       ├──────────┤
+│ id (PK)  │◀──┐   │ path (PK) │   ┌──▶│ id (PK)  │
+│ name     │   │   │ name      │   │   │ name     │
+└──────────┘   │   │ author_id │   │   └──────────┘
+               └───│ (FK)      │   │
+                    │ source_fmt│   │
+┌──────────┐       │ id (FK)   │   │   ┌──────────────┐
+│source_fmts│       │ year      │   │   │ source_tags  │
+├──────────┤       │ edition   │   │   ├──────────────┤
+│ id (PK)  │◀──────│ url       │   │   │ source_path  │──┼──┐
+│ name     │       │ created_at│   │   │ (FK)         │  │  │
+└──────────┘       │ updated_at│   │   │ tag_id (FK)  │──┘  │
+                   └───────────┘   │   └──────────────┘     │
+                                   │                        │
+                                   └────────────────────────┘
+                                PK: (source_path, tag_id)
+```
+
+### 4.2 sources
+
+Primary entity. Represents a file discovered in the library directory.
+
+| Column             | Type      | Constraints                      | Description                                                          |
+|--------------------|-----------|----------------------------------|----------------------------------------------------------------------|
+| `path`             | VARCHAR   | PK                               | Absolute filesystem path. Global unique identifier.                  |
+| `name`             | VARCHAR   | NOT NULL                         | File name without path. Not unique.                                  |
+| `author_id`        | BIGINT    | FK → authors.id, nullable        | Inferred from directory structure.                                   |
+| `source_format_id` | BIGINT    | FK → source_formats.id, NOT NULL | PDF, EPUB, or MHTML.                                                 |
+| `year`             | INT       | nullable                         | User-assigned publication year.                                      |
+| `edition`          | VARCHAR   | nullable                         | User-assigned edition string.                                        |
+| `url`              | VARCHAR   | nullable                         | Original URL for web articles. Must be valid HTTP/HTTPS if provided. |
+| `created_at`       | TIMESTAMP | NOT NULL                         | Record creation timestamp.                                           |
+| `updated_at`       | TIMESTAMP | NOT NULL                         | Last modification timestamp.                                         |
+
+#### Business Rules
+
+- `path` is the global unique identifier for a source.
+- `name` is **not** unique — two files with the same name can exist in different directories.
+- If a file is deleted from the filesystem, its database record is **physically deleted**.
+- If `url` is provided, it must be a valid HTTP or HTTPS URL.
+
+### 4.3 authors
+
+| Column | Type    | Constraints        | Description          |
+|--------|---------|--------------------|----------------------|
+| `id`   | BIGINT  | PK, auto-generated | —                    |
+| `name` | VARCHAR | UNIQUE, NOT NULL   | Author display name. |
+
+### 4.4 tags
+
+| Column | Type    | Constraints        | Description       |
+|--------|---------|--------------------|-------------------|
+| `id`   | BIGINT  | PK, auto-generated | —                 |
+| `name` | VARCHAR | UNIQUE, NOT NULL   | Tag display name. |
+
+### 4.5 source_formats
+
+| Column | Type    | Constraints        | Description                    |
+|--------|---------|--------------------|--------------------------------|
+| `id`   | BIGINT  | PK, auto-generated | —                              |
+| `name` | VARCHAR | UNIQUE, NOT NULL   | Format name: PDF, EPUB, MHTML. |
+
+### 4.6 source_tags
+
+Join table for the many-to-many relationship between sources and tags.
+
+| Column        | Type    | Constraints                          | Description |
+|---------------|---------|--------------------------------------|-------------|
+| `source_path` | VARCHAR | FK → sources.path, ON DELETE CASCADE | —           |
+| `tag_id`      | BIGINT  | FK → tags.id                         | —           |
+
+**Primary key**: (`source_path`, `tag_id`)
+
+When a source is deleted, its tag associations are deleted in cascade.
+
+---
+
+## 5. Behavior & Data Flow
+
+### 5.1 File Creation
+
+**Trigger**: A file is created in the library directory (copy, download, move-in).
+
+```
+Agent (WatchService)               API
+┌──────────────┐                  ┌──────────┐
+│ Detects       │                  │          │
+│ ENTRY_CREATE  │  POST /sources  │          │
+│ for file.pdf  │ ──────────────▶ │ Validates │
+│               │  {path, name,   │ and       │
+│ Parses        │   format,       │ inserts   │
+│ author from   │   author}       │ source    │
+│ folder        │                 │ record    │
+└──────────────┘                  └──────────┘
+```
+
+1. WatchService detects `ENTRY_CREATE` for a supported file extension (.pdf, .epub, .mhtml).
+2. Agent infers the author from the parent directory name (if not at root level).
+3. Agent sends a creation request to the API with path, name, format, and inferred author.
+4. API validates the data and inserts a new `sources` record.
+5. If the inferred author does not exist in `authors`, the API creates it.
+
+### 5.2 File Deletion
+
+**Trigger**: A file is deleted from the library directory.
+
+```
+Agent (WatchService)               API
+┌──────────────┐                  ┌──────────┐
+│ Detects       │                  │          │
+│ ENTRY_DELETE  │  DELETE /sources│          │
+│ for file.pdf  │ ──────────────▶ │ Deletes  │
+│               │  {path}         │ source   │
+│               │                  │ record   │
+│               │                  │ (cascade │
+│               │                  │  deletes │
+│               │                  │  tags)   │
+└──────────────┘                  └──────────┘
+```
+
+1. WatchService detects `ENTRY_DELETE` for a known file.
+2. Agent sends a deletion request to the API with the file path.
+3. API **physically deletes** the source record.
+4. `source_tags` entries are deleted via `ON DELETE CASCADE`.
+5. This is irreversible: all metadata (tags, URL, year) is lost.
+
+### 5.3 File Rename / Move
+
+**Trigger**: A file is renamed or moved within the library directory.
+
+```
+Agent (WatchService)               API
+┌──────────────┐                  ┌──────────┐
+│ Detects       │                  │          │
+│ ENTRY_DELETE  │  DELETE /sources│ Deletes  │
+│ (old path)    │ ──────────────▶ │ old      │
+│ then          │                  │ record   │
+│ ENTRY_CREATE  │  POST /sources  │ Creates  │
+│ (new path)    │ ──────────────▶ │ new      │
+│               │                  │ record   │
+└──────────────┘                  └──────────┘
+```
+
+**V1 limitation**: Rename/move is handled as a DELETE + CREATE sequence. The WatchService fires two events that the
+Agent forwards as two separate API calls. This means **all metadata (tags, URL, year, edition) is lost** during a
+rename.
+
+A future version may implement path updates to preserve metadata across renames.
+
+### 5.4 Full Scan & Reconciliation
+
+**Trigger**: Agent startup (first time) or user-initiated reconciliation.
+
+```
+Agent                              API
+┌──────────────┐                  ┌──────────┐
+│ Walks entire  │                  │          │
+│ library dir   │  POST /sync     │          │
+│ Collects all  │ ──────────────▶ │ For each │
+│ current files │  [{path, name,  │ file:    │
+│               │    format,      │ - exists?│
+│               │    author}, ...]│   skip   │
+│               │                  │ - new?   │
+│               │                  │   insert │
+│               │                  │          │
+│               │                  │ Deletes  │
+│               │                  │ records  │
+│               │                  │ for paths│
+│               │                  │ NOT in   │
+│               │                  │ the list │
+└──────────────┘                  └──────────┘
+```
+
+1. Agent walks the entire library directory, collecting all current files.
+2. Agent sends the complete file list to the API.
+3. API performs a **set reconciliation**:
+    - Files in the list but not in the DB → insert.
+    - Files in the DB but not in the list → physical delete.
+    - Files in both → skip (already synchronized).
+4. This is the only mechanism that can detect out-of-band changes (files modified while the Agent was offline).
+
+---
+
+## 6. Interface Design
+
+### 6.1 REST API Overview
+
+The API exposes a RESTful HTTP interface. All communication uses JSON.
+
+| Method   | Path                  | Purpose                                | Source          |
+|----------|-----------------------|----------------------------------------|-----------------|
+| `POST`   | `/api/sources`        | Create a new source                    | Agent, Frontend |
+| `GET`    | `/api/sources`        | List / search sources                  | Frontend        |
+| `GET`    | `/api/sources/{path}` | Get single source                      | Frontend        |
+| `DELETE` | `/api/sources/{path}` | Delete a source                        | Agent           |
+| `PATCH`  | `/api/sources/{path}` | Update source metadata                 | Frontend        |
+| `POST`   | `/api/sync`           | Full reconciliation (upload file list) | Agent           |
+| `POST`   | `/api/reconcile`      | Trigger reconciliation                 | Frontend        |
+| `GET`    | `/api/authors`        | List authors                           | Frontend        |
+| `GET`    | `/api/tags`           | List tags                              | Frontend        |
+| `GET`    | `/api/formats`        | List source formats                    | Frontend        |
+
+Detailed endpoint specifications (request/response bodies, status codes, validation rules) are documented in
+`docs/api/SDD.md`.
+
+### 6.2 Communication Patterns
+
+| Pattern                  | Description                                                                                                                    |
+|--------------------------|--------------------------------------------------------------------------------------------------------------------------------|
+| **Event notification**   | Agent detects a change and sends a single HTTP request per event (CREATE, DELETE). Simple, reliable, no message broker needed. |
+| **Bulk sync**            | Agent collects all current files and sends them in a single request. Used for startup and reconciliation.                      |
+| **Request-response**     | Frontend queries the API directly. Standard REST pattern.                                                                      |
+| **No events or pub/sub** | Not needed for V1. Direct HTTP is sufficient given the single-user scope.                                                      |
+
+---
+
+## 7. Design Decisions
+
+### 7.1 Physical Delete vs Soft Delete
+
+|               | Decision                                                                                                                                                                                        |
+|---------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| **Chosen**    | Physical delete — when a file is removed from the filesystem, the database record is deleted.                                                                                                   |
+| **Rejected**  | Soft delete (`active = false`) — would have preserved metadata but introduced complexity (`WHERE active = true` in every query) and contradicted the "filesystem as source of truth" principle. |
+| **Trade-off** | Metadata (tags, URL, year) is lost when a file is deleted. If the file reappears, it starts fresh. This can be revisited in a future version with a separate metadata history table.            |
+
+### 7.2 WatchService in a Separate Agent
+
+|                          | Decision                                                                                                                                                                  |
+|--------------------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| **Chosen**               | Filesystem monitoring runs in a separate Java process (Agent), not embedded in the API.                                                                                   |
+| **Rationale**            | WatchService is blocking and platform-specific. Keeping it separate prevents filesystem issues from affecting API availability. The Agent can be restarted independently. |
+| **Alternative rejected** | Embedding WatchService in the API would couple persistence to filesystem monitoring and break the principle that the API should not access the FS.                        |
+
+### 7.3 No Full-Text Search (V1)
+
+|               | Decision                                                                                                                                                                              |
+|---------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| **Chosen**    | Only metadata search (name, author, tags, format, URL).                                                                                                                               |
+| **Rationale** | Full-text search requires indexing file contents (PDF parsing, EPUB extraction), which adds significant complexity. The catalog focuses on metadata organization, not content search. |
+| **Future**    | Can be added in V2 if needed, possibly via a sidecar indexer.                                                                                                                         |
+
+### 7.4 No Download Capability
+
+|                   | Decision                                                                                                                                                                                               |
+|-------------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| **Chosen**        | The system does not download files from URLs.                                                                                                                                                          |
+| **Rationale**     | The filesystem is the source of truth. The Agent is a sensor, not an actor. Downloading would require network access, error handling for download failures, and storage management — all out of scope. |
+| **User workflow** | Users save files to the library directory manually (browser, extension, external tool). The Agent detects them automatically.                                                                          |
+
+### 7.5 Monorepo with Independent Modules
+
+|               | Decision                                                                                                     |
+|---------------|--------------------------------------------------------------------------------------------------------------|
+| **Chosen**    | Monorepo with separate build systems (each module has its own Maven wrapper / npm).                          |
+| **Rationale** | Independent builds and deployments without a root POM. Each module can be developed and tested in isolation. |
+
+---
+
+## 8. Roadmap
+
+### 8.1 V1 (MVP)
+
+- [x] System design (this document)
+- [ ] API: database schema, migrations, REST endpoints, source CRUD
+- [ ] Agent: WatchService, full scan, HTTP communication with API
+- [ ] Frontend: source list, search, metadata editing
+- [ ] Manual reconciliation
+
+### 8.2 V2 (Candidate)
+
+Features under consideration, not yet committed:
+
+- Path update on rename (preserve metadata)
+- Genre taxonomy (if tag usage shows need)
+- Full-text search (if requirements grow)
+
+---
+
+## 9. References
+
+| Reference                     | Location            |
+|-------------------------------|---------------------|
+| API detailed design           | `docs/api/SDD.md`   |
+| Agent detailed design         | `docs/agent/SDD.md` |
+| Frontend detailed design      | `docs/front/SDD.md` |
+| Architecture Decision Records | `docs/decisions/`   |
+
+---
+
+## Appendix A: Repository Conventions
+
+```
 biblocat/
-├── api/
-├── agent/
-├── front/
-├── docs/
-└── infra/
-
-Cada componente es un proyecto independiente.
-
----
-
-# 3. Objetivos del sistema
-
-## 3.1 Funcionales
-
-- Catalogar archivos PDF y EPUB desde filesystem local
-- Detectar cambios en tiempo real (create, delete, rename)
-- Permitir búsqueda por:
-    - nombre
-    - autor
-    - etiquetas
-    - tipo documental
-- Gestión manual de:
-    - autores
-    - tags
-    - tipos documentales
-- Reconciliación manual del sistema
-
----
-
-## 3.2 No funcionales
-
-- Arquitectura simple y mantenible
-- Sin microservicios complejos
-- Sin búsqueda full-text
-- Sin embeddings ni IA
-- API como única fuente de lógica de negocio
-- Baja complejidad operativa
-- Bajo consumo de recursos
-
----
-
-# 4. Componentes del sistema
-
----
-
-## 4.1 API (Spring Boot)
-
-### Responsabilidades
-
-- Persistencia en PostgreSQL
-- Gestión del modelo de dominio
-- Exposición REST API
-- Gestión de sincronización con agent
-- Ejecución de migraciones con Flyway
-- Validación de datos
-
-### Restricciones
-
-- No accede al filesystem
-- No ejecuta WatchService
-- No contiene lógica de sincronización local
-
----
-
-## 4.2 Agent (Java 21)
-
-### Responsabilidades
-
-- Monitoreo del filesystem (WatchService)
-- Escaneo completo de la biblioteca
-- Detección de cambios (create, delete, rename)
-- Interpretación de estructura de carpetas
-- Comunicación HTTP con API
-
-### Restricciones
-
-- No accede a base de datos
-- No contiene lógica de dominio
-- No expone interfaz de usuario
-
----
-
-## 4.3 Frontend (React + Vite)
-
-### Responsabilidades
-
-- Interfaz de usuario
-- Visualización de documentos
-- Gestión de tags, autores y tipos
-- Reconciliación manual
-
-### Restricciones
-
-- No contiene lógica de negocio
-- No accede al filesystem
-- No se comunica directamente con el agent
-
----
-
-## 4.4 Base de datos (PostgreSQL)
-
-- Gestionada mediante Flyway dentro de la API
-- No es un proyecto independiente
-- Almacenamiento pasivo
-
----
-
-# 5. Modelo de dominio
-
----
-
-## 5.1 sources (entidad principal)
-
-sources
--------
-path (PK)
-name
-author_id (nullable)
-source_type_id
-year (nullable)
-edition (nullable)
-active (boolean)
-created_at
-updated_at
-
-### Reglas
-
-- `path` es identificador único global
-- `name` no es único
-- `active = false` indica archivo eliminado del filesystem
-
----
-
-## 5.2 authors
-
-authors
--------
-
-- id
-- name (unique)
-
----
-
-## 5.3 tags
-
-tags
-----
-
-- id
-- name (unique)
-
----
-
-## 5.4 source_types
-
-source_types
-------------
-
-- id
-- name (unique)
-
----
-
-## 5.5 source_tags
-
-source_tags
------------
-
-- source_path (FK)
-- tag_id (FK)
-- Primary key: (source_path, tag_id)
-
----
-
-# 6. Reglas del Agent
-
----
-
-## 6.1 Estructura del filesystem
-
-Biblioteca/<Autor>/<Archivo>
-
-- Nivel 1: autor
-- Nivel 2: archivo
-
----
-
-## 6.2 Archivos sin autor
-
-Biblioteca/documento.pdf
-
-→ author = null
-
----
-
-## 6.3 Carpetas vacías
-
-Biblioteca/Kant/
-
-→ crea autor sin sources
-
----
-
-## 6.4 Identidad del documento
-
-El identificador único del sistema es:
-
-path
-
----
-
-## 6.5 Sincronización
-
-- CREATE → INSERT source
-- DELETE → source.active = false
-- RENAME/MOVE → DELETE + CREATE (V1)
-
----
-
-# 7. Sincronización
-
----
-
-## 7.1 Tiempo real (WatchService)
-
-El agent detecta cambios en el filesystem y los envía a la API.
-
----
-
-## 7.2 Escaneo completo
-
-Reconstrucción total del estado del filesystem. Se hace al iniciar el agente por primera vez.
-
----
-
-## 7.3 Reconciliación manual
-
-Frontend → API → Agent → Full scan. El usuario puede activarla desde el front-end o desde el agente.
-
----
-
-# 8. Reglas de diseño del sistema
-
-Si requiere filesystem → Agent
-Si requiere dominio o persistencia → API
-Si requiere interfaz de usuario → Frontend
-
----
-
-# 9. Evolución del sistema
-
----
-
-## V1 (actual)
-
-- Catálogo básico
-- Sincronización con filesystem
-- Tags manuales
-
----
-
-## V2
-
-- *por definir.
-
----
-
-# 10. Convenciones del monorepo
-
-library-catalog/
-├── api/        (Spring Boot + Flyway)
-├── agent/      (Java 21 daemon)
-├── frontend/   (React + Vite)
-├── docs/       (SDD + ADRs)
-└── infra/      (docker, scripts, CI/CD)
-
----
-
-# 11. Regla de oro del sistema
-
-El filesystem es la verdad.  
-La API es la interpretación.  
-El frontend es la visualización.  
-El agent es el sensor.
+├── api/          Spring Boot + Flyway
+├── agent/        Java 21 daemon
+├── front/        React + Vite + TypeScript
+├── docs/         SDD + module SDDs + ADRs
+└── infra/        Docker, scripts, CI/CD
+```
+
+- Each module is an independent project with its own build system.
+- No root POM exists. Each Java module has its own Maven wrapper (`api/mvnw`, `agent/mvnw`).
+- Package naming: `com.biblocat.api` (API), `com.biblocat` (Agent).
+- Frontend build: `npm run build` runs `tsc -b && vite build`.
+- All documentation is in Markdown, version-controlled alongside code.
