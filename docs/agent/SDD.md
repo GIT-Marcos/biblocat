@@ -304,25 +304,37 @@ ENTRY_CREATE for a file     → process it as a new source
 
 #### ENTRY_CREATE
 
-| Event target                    | Action                                                        |
-|---------------------------------|---------------------------------------------------------------|
-| File with supported extension   | Parse author from parent directory → send `POST /api/sources` |
-| File with unsupported extension | Ignore                                                        |
-| Directory                       | Register with WatchService for future events                  |
+| Event target                    | Action                                                                                                  |
+|---------------------------------|---------------------------------------------------------------------------------------------------------|
+| File with supported extension   | Parse author from parent directory → compute SHA-256 hash → send `POST /api/sources` with `contentHash` |
+| File with unsupported extension | Ignore                                                                                                  |
+| Directory                       | Register with WatchService for future events                                                            |
+
+The SHA-256 hash is computed immediately on detection (see §4.5). This hash enables the API to
+detect renames by looking up the `sources` table in the database: if another source with the
+same hash exists at a different path, the API transfers metadata from the old record to the
+new one. No in-memory buffer is used (see
+`docs/decisions/0001-content-hash-rename-detection.md`).
 
 #### ENTRY_DELETE
 
-| Event target | Action                                                                                               |
-|--------------|------------------------------------------------------------------------------------------------------|
-| File         | Send `DELETE /api/sources/{encoded-path}`                                                            |
-| Directory    | Remove from WatchService (no explicit action needed as all contained files are deleted individually) |
+| Event target | Action                                                                                                |
+|--------------|-------------------------------------------------------------------------------------------------------|
+| File         | **Ignored**. Deletions are detected only via the periodic reconciliation scan (see §4.6).             |
+| Directory    | Remove from WatchService (no explicit action needed as all contained files are deleted individually). |
 
 #### ENTRY_MODIFY
 
-| Event target | Action                                                                                                       |
-|--------------|--------------------------------------------------------------------------------------------------------------|
-| File         | **Ignored** in V1. Metadata updates are manual via Frontend. File content changes do not affect the catalog. |
-| Directory    | Ignored (timestamp changes on the directory itself are irrelevant).                                          |
+| Event target | Action                                                                                                                        |
+|--------------|-------------------------------------------------------------------------------------------------------------------------------|
+| File         | **Ignored directly**. Content changes are detected indirectly via safe-save (CREATE on the same path). See §4.4 and ADR 0001. |
+| Directory    | Ignored (timestamp changes on the directory itself are irrelevant).                                                           |
+
+While `ENTRY_MODIFY` is ignored, file modifications that use the safe-save pattern (write temp,
+delete original, rename temp) generate a `ENTRY_CREATE` on the same path. The API checks the
+database by path and handles it as a safe-save: metadata is preserved because the record was
+never deleted (DELETE is ignored). No in-memory buffer is involved (see
+`docs/decisions/0001-content-hash-rename-detection.md`).
 
 ### 4.3 File Filtering
 
@@ -340,20 +352,96 @@ All other files are silently ignored. Hidden files (names starting with `.`) are
 
 ### 4.4 Debouncing
 
-On some platforms (notably Windows), a single file operation can fire multiple WatchService events. The Agent implements
-a simple debounce:
+On some platforms (notably Windows), a single file operation can fire multiple WatchService events.
+The Agent deduplicates events within a short window to avoid sending duplicate requests.
+
+```
+Within FileEventHandler:
+1. Collect events into a map keyed by path
+2. For each path, keep only the last event within a 500ms window
+3. Process deduplicated events
+```
+
+Debounce window: **500ms** (only for deduplication — no need to pair DELETE+CREATE events, as
+ENTRY_DELETE is ignored entirely).
+
+Additionally, `ENTRY_CREATE` on a file that already exists in the database is handled by the API
+as a safe-save (update `content_hash`, preserve metadata). The Agent does not need special
+logic for this case.
+
+### 4.5 Hash Computation
+
+A SHA-256 hash is computed for every supported file on `ENTRY_CREATE`:
 
 ```java
 // Within FileEventHandler:
-// 1. Collect events into a map keyed by path
-// 2. For each path, keep only the last event within a 500ms window
-// 3. Process deduplicated events
+MessageDigest digest = MessageDigest.getInstance("SHA-256");
+try(
+InputStream is = Files.newInputStream(filePath)){
+byte[] buffer = new byte[8192];
+int bytesRead;
+    while((bytesRead =is.
+
+read(buffer))!=-1){
+        digest.
+
+update(buffer, 0,bytesRead);
+    }
+            }
+String contentHash = HexFormat.of().formatHex(digest.digest());
 ```
 
-Debounce window: **500ms**.
+**When NOT to hash:**
 
-Additionally, `ENTRY_CREATE` on a file that already exists in the database is treated as a no-op (idempotent via the
-API's `409 Conflict` → Agent treats as "already exists" and skips).
+- Directories (not applicable)
+- Files with unsupported extensions (ignored)
+- Files below a configurable size threshold (optional optimization)
+
+The hash is sent as `contentHash` in `POST /api/sources` and `POST /api/sync` requests. Hash is
+also computed during the periodic reconciliation scan (§4.6) for new or changed files (detected
+via file size or last-modified-time changes). It is never computed on `ENTRY_DELETE`.
+
+See `docs/decisions/0001-content-hash-rename-detection.md` for the full rationale and design.
+
+### 4.6 Periodic Reconciliation Scan
+
+The Agent runs a scheduled scan of the entire library directory to detect changes missed by
+WatchService (e.g., Agent restart, transient errors) and to handle deletions (which are never
+reported in real time).
+
+**Trigger conditions:**
+
+- On Agent startup (initial scan).
+- Every **30 minutes** thereafter (configurable interval, default `scanIntervalMinutes = 30`).
+- On demand via `POST /api/reconcile` request from the Frontend (the API then triggers the Agent's internal
+  `POST /agent/reconcile`).
+
+**Procedure:**
+
+1. Walk the entire library directory recursively.
+2. For each supported file:
+    - If the file is **new** (not in the previous scan's result set) → compute SHA-256 hash.
+    - If the file's size or last-modified time differs from the previous scan → compute SHA-256 hash.
+    - Otherwise → skip hashing (use cached hash from the last scan or database).
+3. Collect all file entries into a list: `[{path, name, format, author, contentHash}, ...]`.
+4. Send `POST /api/sync` with the complete list to the API.
+5. Process the API response (summary of inserted, deleted, and renamed records).
+
+**Optimizations:**
+
+- Only new or changed files are hashed (mitigates CPU/I/O cost).
+- File size and mtime are compared against the last scan's snapshot to detect changes.
+- The scan result is cached in memory for the next scan's change detection.
+
+**Interaction with WatchService:**
+
+- Files already created via `POST /api/sources` (from WatchService) appear in the scan list as
+  existing records. The API skips them during reconciliation.
+- Files deleted from the filesystem since the last scan are absent from the scan list. The API
+  soft-deletes their database records (sets `deleted_at`). Metadata is preserved for
+  potential reactivation (see ADR 0002).
+- Renames missed by WatchService (e.g., Agent was down) are detected via hash matching: the API
+  compares hashes of "missing" records against "new" records and transfers metadata.
 
 ---
 
@@ -400,8 +488,8 @@ author association.
 ### 5.3 Empty Directories
 
 If a directory exists at the author level but contains no supported files, the Agent does **not** send any creation
-event for the directory itself. Author records for empty directories are created during the full scan (see section 6.3
-of the system SDD).
+event for the directory itself. Author records for empty directories are created during the full scan (see section 5.4 —
+Full Scan & Reconciliation — of the system SDD).
 
 ---
 
@@ -481,8 +569,6 @@ class ApiClient {
 
     void createSource(CreateSourceRequest request) { ...}
 
-    void deleteSource(String path) { ...}
-
     SyncResult sync(List<SourceFile> files) { ...}
 }
 ```
@@ -496,23 +582,18 @@ All methods:
 
 ### 7.2 API Endpoints Used
 
-| Agent action      | HTTP method | API endpoint                                    | Payload                                      |
-|-------------------|-------------|-------------------------------------------------|----------------------------------------------|
-| New file detected | `POST`      | `/api/sources`                                  | `{ path, name, sourceFormatId, authorName }` |
-| File deleted      | `DELETE`    | `/api/sources/{encoded-path}`                   | none                                         |
-| Full sync         | `POST`      | `/api/sync`                                     | `[{ path, name, format, authorName }]`       |
-| Health check      | `GET`       | `/api/health` (or `/api/sources?page=0&size=1`) | none                                         |
-
-The `path` parameter in DELETE requests must be URL-encoded. The Agent uses `URLEncoder.encode(path, UTF_8)` and
-replaces `+` with `%20` for correct space encoding.
+| Agent action      | HTTP method | API endpoint                 | Payload                                      |
+|-------------------|-------------|------------------------------|----------------------------------------------|
+| New file detected | `POST`      | `/api/sources`               | `{ path, name, sourceFormatId, authorName }` |
+| Full sync         | `POST`      | `/api/sync`                  | `[{ path, name, format, authorName }]`       |
+| Health check      | `GET`       | `/api/sources?page=0&size=1` | none                                         |
 
 ### 7.3 Error Handling and Retries
 
 | Error                         | Behaviour                                                                                                                           |
 |-------------------------------|-------------------------------------------------------------------------------------------------------------------------------------|
 | Connection refused (API down) | Log error, retry on next event. Events are NOT queued — they are lost if the API is unavailable. The next full scan will reconcile. |
-| `404 Not Found` on DELETE     | Ignore (file already deleted from DB).                                                                                              |
-| `409 Conflict` on CREATE      | Ignore (file already exists in DB).                                                                                                 |
+| `409 Conflict` on CREATE      | Ignore (source already exists or was reactivated).                                                                                  |
 | `5xx` Server error            | Log error, do not retry.                                                                                                            |
 
 **Retry policy**: No automatic retry for individual events. Simpler than implementing a retry queue, and acceptable
@@ -636,12 +717,12 @@ If validation fails, the Agent logs the error and exits with code 1.
 
 ### 10.2 Integration Tests
 
-| Scenario                        | Approach                                                                                      |
-|---------------------------------|-----------------------------------------------------------------------------------------------|
-| WatchService detects a new file | Create a temp file in the watched directory, verify API call would be made (mock the client). |
-| WatchService detects a deletion | Delete a temp file, verify DELETE call.                                                       |
-| Full scan collects all files    | Create temp files and directories, walk, verify count and metadata.                           |
-| Reconciliation trigger          | Start the embedded HTTP server, POST to `/agent/reconcile`, verify sync is triggered.         |
+| Scenario                        | Approach                                                                                                                |
+|---------------------------------|-------------------------------------------------------------------------------------------------------------------------|
+| WatchService detects a new file | Create a temp file in the watched directory, verify API call would be made (mock the client).                           |
+| WatchService detects a deletion | Delete a temp file, verify no API call is made (ENTRY_DELETE is ignored). Verify deletion is detected on the next scan. |
+| Full scan collects all files    | Create temp files and directories, walk, verify count and metadata.                                                     |
+| Reconciliation trigger          | Start the embedded HTTP server, POST to `/agent/reconcile`, verify sync is triggered.                                   |
 
 ### 10.3 Test File Structure
 

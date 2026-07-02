@@ -57,7 +57,7 @@ It does **not** cover:
 │       │   ├── <FilterBar />        ← author, tag, format filters
 │       │   ├── <SourceTable />      ← paginated source rows
 │       │   └── <Pagination />
-│       ├── <SourceDetailPage>       ← /sources/:path
+│       ├── <SourceDetailPage>       ← /sources/:id
 │       │   ├── <SourceMetadata />   ← editable fields
 │       │   ├── <TagEditor />        ← add/remove tags
 │       │   └── <AuthorBadge />
@@ -145,7 +145,7 @@ The current `package.json` needs the following additions:
 ```
 /                     → redirect to /sources
 /sources              → SourceListPage (default)
-/sources/:path        → SourceDetailPage
+/sources/:id          → SourceDetailPage
 /authors              → AuthorListPage
 /tags                 → TagListPage
 /reconcile            → ReconciliationPage
@@ -164,7 +164,7 @@ const router = createBrowserRouter([
             {index: true, element: <Navigate to = "/sources" replace / >
     },
     {path: 'sources', element: <SourceListPage / >},
-    {path: 'sources/:path', element: <SourceDetailPage / >},
+    {path: 'sources/:id', element: <SourceDetailPage / >},
     {path: 'authors', element: <AuthorListPage / >},
     {path: 'tags', element: <TagListPage / >},
     {path: 'reconcile', element: <ReconciliationPage / >},
@@ -178,7 +178,7 @@ const router = createBrowserRouter([
 
 ```
 SourceListPage
-  ├─ click source row → /sources/{encoded-path}
+  ├─ click source row → /sources/{id}
   └─ click "Authors" in nav → /authors
 
 SourceDetailPage
@@ -287,6 +287,7 @@ async function request<T>(
 ```typescript
 // api/types.ts
 interface SourceResponse {
+    id: number;
     path: string;
     name: string;
     author: { id: number; name: string } | null;
@@ -332,11 +333,11 @@ export const sources = {
     list: (params: SourceSearchParams, opts?: RequestOptions) =>
         request<Page<SourceResponse>>('GET', '/api/sources', {params, signal: opts?.signal}),
 
-    get: (path: string) =>
-        request<SourceResponse>('GET', `/api/sources/${encodeURIComponent(path)}`),
+    get: (id: number) =>
+        request<SourceResponse>('GET', `/api/sources/${id}`),
 
-    update: (path: string, body: UpdateSourceRequest) =>
-        request<SourceResponse>('PATCH', `/api/sources/${encodeURIComponent(path)}`, {body}),
+    update: (id: number, body: UpdateSourceRequest) =>
+        request<SourceResponse>('PATCH', `/api/sources/${id}`, {body}),
 
     // Not exposed in the Frontend:
     // create → Agent only
@@ -439,8 +440,8 @@ Shows full metadata for a single source and allows editing.
 
 - Editable fields use inline edit (click to edit, blur or Enter to save).
 - Tag editor: typeahead component that searches `/api/tags`. Existing tags shown as badges with remove button.
-- No "save" button — each field auto-saves via `PATCH /api/sources/{path}`.
-- The `path` parameter is URL-encoded. The component decodes it for display.
+- No "save" button — each field auto-saves via `PATCH /api/sources/{id}`.
+- The `id` parameter is a number — no URL encoding needed.
 
 ### 6.3 AuthorListPage
 
@@ -595,17 +596,13 @@ type Format = 'PDF' | 'EPUB' | 'MHTML';  // use union types instead of enum
 // enum Format { PDF, EPUB, MHTML }
 ```
 
-### 8.2 API URL Encoding
+### 8.2 Source Identification
 
-File paths in URLs must be encoded:
+Sources are identified by their numeric `id` in all API routes and frontend navigation:
 
-```typescript
-// Encode path for URL (spaces, slashes, special chars)
-const encodedPath = encodeURIComponent(source.path);
-
-// Decode for display
-const displayPath = decodeURIComponent(encodedPath);
-```
+- `/api/sources/{id}` — stable identifier that does not change when a file is renamed or moved.
+- `/sources/{id}` — the frontend route uses the same numeric id.
+- No URL encoding is needed for numeric identifiers.
 
 ### 8.3 Form Validation
 
@@ -761,13 +758,12 @@ export default defineConfig({
 | **Rationale**      | Bookmarkable URLs, browser back/forward works naturally, easy to share.              |
 | **Implementation** | `useSearchParams` from react-router.                                                 |
 
-### 11.4 Path as URL Parameter
+### 11.4 ID as URL Parameter
 
-|               | Decision                                                                                                                                                                           |
-|---------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| **Chosen**    | The source path (PK) is used directly in the route: `/sources/{encoded-path}`.                                                                                                     |
-| **Rationale** | Consistent with the API where path is the source identifier. No need for a synthetic ID.                                                                                           |
-| **Caveat**    | Paths can be long and contain special characters. `encodeURIComponent` is mandatory. Very long paths may hit URL length limits, but this is extremely rare for personal libraries. |
+|               | Decision                                                                                                                                                                                                                                                                                                                                        |
+|---------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| **Chosen**    | The source `id` (BIGSERIAL) is used in the route: `/sources/{id}`.                                                                                                                                                                                                                                                                              |
+| **Rationale** | `id` is a stable identifier that never changes, even if the file is renamed or moved. It avoids URL encoding issues (path separators, spaces, special characters) and enables file path coexistence after soft-delete (multiple records with the same path but different `id`). Consistent with the API, where all source endpoints use `{id}`. |
 
 ### 11.5 No Direct Agent Communication
 

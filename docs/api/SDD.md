@@ -6,7 +6,7 @@
 |-----------------|-----------------------------------------------|
 | **Version**     | 1.0                                           |
 | **Status**      | Draft — initial definition for implementation |
-| **Last update** | 2026-07-01                                    |
+| **Last update** | 2026-07-02                                    |
 | **System SDD**  | `docs/SDD.md`                                 |
 
 ---
@@ -186,21 +186,24 @@ POST /api/sources
   "path": "/home/user/Biblioteca/Kant/Critica.pdf",
   "name": "Critica.pdf",
   "sourceFormatId": 1,
-  "authorName": "Kant"
+  "authorName": "Kant",
+  "contentHash": "2a846fa617c3361fc117e1c5c1e1838c336b6a5cef982c1a2d9bdf68f2f1992a"
 }
 ```
 
-| Field            | Type   | Required | Description                                                              |
-|------------------|--------|----------|--------------------------------------------------------------------------|
-| `path`           | string | yes      | Absolute filesystem path. Must be unique.                                |
-| `name`           | string | yes      | File name without path.                                                  |
-| `sourceFormatId` | long   | yes      | ID of the format (1=PDF, 2=EPUB, 3=MHTML).                               |
-| `authorName`     | string | no       | Author name. If provided and no existing author matches, one is created. |
+| Field            | Type   | Required | Description                                                                  |
+|------------------|--------|----------|------------------------------------------------------------------------------|
+| `path`           | string | yes      | Absolute filesystem path. Must be unique.                                    |
+| `name`           | string | yes      | File name without path.                                                      |
+| `sourceFormatId` | long   | yes      | ID of the format (1=PDF, 2=EPUB, 3=MHTML).                                   |
+| `authorName`     | string | no       | Author name. If provided and no existing author matches, one is created.     |
+| `contentHash`    | string | no       | SHA-256 hex digest of file content. Used for rename and safe-save detection. |
 
 **Response `201 Created`:**
 
 ```json
 {
+  "id": 1,
   "path": "/home/user/Biblioteca/Kant/Critica.pdf",
   "name": "Critica.pdf",
   "author": {
@@ -221,10 +224,10 @@ POST /api/sources
 
 **Error responses:**
 
-| Status            | Condition                                         |
-|-------------------|---------------------------------------------------|
-| `400 Bad Request` | Missing required fields, invalid `sourceFormatId` |
-| `409 Conflict`    | Source with the same `path` already exists        |
+| Status            | Condition                                                              |
+|-------------------|------------------------------------------------------------------------|
+| `400 Bad Request` | Missing required fields, invalid `sourceFormatId`                      |
+| `409 Conflict`    | A source with the same `path` is already active (`deleted_at IS NULL`) |
 
 ---
 
@@ -254,6 +257,7 @@ GET /api/sources
 {
   "content": [
     {
+      "id": 1,
       "path": "/home/user/Biblioteca/Kant/Critica.pdf",
       "name": "Critica.pdf",
       "author": {
@@ -289,18 +293,20 @@ GET /api/sources
 #### 3.1.3 Get Single Source
 
 ```
-GET /api/sources/{path}
+GET /api/sources/{id}
 ```
 
-**Path parameter:** `path` — URL-encoded absolute filesystem path.
+**Path parameter:** `id` — surrogate primary key of the source.
 
-**Response `200 OK`:** Same shape as a single item in the list response.
+**Query parameters:** `includeDeleted` — if `true`, returns the source even if `deleted_at` is set (default: `false`).
+
+**Response `200 OK`:** Same shape as a single item in the list response (includes `deletedAt` field when set).
 
 **Error responses:**
 
-| Status          | Condition                      |
-|-----------------|--------------------------------|
-| `404 Not Found` | No source with the given path. |
+| Status          | Condition                    |
+|-----------------|------------------------------|
+| `404 Not Found` | No source with the given id. |
 
 ---
 
@@ -309,8 +315,10 @@ GET /api/sources/{path}
 Updates editable metadata on an existing source. Only the Frontend uses this endpoint.
 
 ```
-PATCH /api/sources/{path}
+PATCH /api/sources/{id}
 ```
+
+**Path parameter:** `id` — surrogate primary key of the source.
 
 **Request body:**
 
@@ -339,25 +347,31 @@ Only provided fields are updated. Omitted fields keep their current values.
 | Status            | Condition                              |
 |-------------------|----------------------------------------|
 | `400 Bad Request` | Invalid URL format, invalid year range |
-| `404 Not Found`   | No source with the given path          |
+| `404 Not Found`   | No source with the given id            |
 
 ---
 
-#### 3.1.5 Delete Source
+#### 3.1.5 Purge Source
 
-Physically deletes a source and its tag associations (cascade). Only the Agent uses this endpoint.
+Permanently removes a **soft-deleted** source and its tag associations from the database
+(`ON DELETE CASCADE`). This operation is irreversible.
+
+Only sources with `deleted_at IS NOT NULL` can be purged. Active sources return a `409 Conflict`.
 
 ```
-DELETE /api/sources/{path}
+DELETE /api/sources/{id}
 ```
+
+**Path parameter:** `id` — surrogate primary key of the source.
 
 **Response `204 No Content`** — empty body.
 
 **Error responses:**
 
-| Status          | Condition                     |
-|-----------------|-------------------------------|
-| `404 Not Found` | No source with the given path |
+| Status          | Condition                                                                             |
+|-----------------|---------------------------------------------------------------------------------------|
+| `404 Not Found` | No source with the given id                                                           |
+| `409 Conflict`  | Source is active (`deleted_at IS NULL`). Use filesystem removal to soft-delete first. |
 
 ---
 
@@ -472,17 +486,19 @@ POST /api/sync
     "path": "/home/user/Biblioteca/Kant/Critica.pdf",
     "name": "Critica.pdf",
     "format": "PDF",
-    "authorName": "Kant"
+    "authorName": "Kant",
+    "contentHash": "2a846fa617c3361fc117e1c5c1e1838c336b6a5cef982c1a2d9bdf68f2f1992a"
   }
 ]
 ```
 
-| Field        | Type   | Required | Description                               |
-|--------------|--------|----------|-------------------------------------------|
-| `path`       | string | yes      | Absolute filesystem path.                 |
-| `name`       | string | yes      | File name.                                |
-| `format`     | string | yes      | Format name: `PDF`, `EPUB`, or `MHTML`.   |
-| `authorName` | string | no       | Inferred author from directory structure. |
+| Field         | Type   | Required | Description                                                    |
+|---------------|--------|----------|----------------------------------------------------------------|
+| `path`        | string | yes      | Absolute filesystem path.                                      |
+| `name`        | string | yes      | File name.                                                     |
+| `format`      | string | yes      | Format name: `PDF`, `EPUB`, or `MHTML`.                        |
+| `authorName`  | string | no       | Inferred author from directory structure.                      |
+| `contentHash` | string | no       | SHA-256 hex digest of file content. Used for rename detection. |
 
 **Response `200 OK`:**
 
@@ -510,7 +526,9 @@ for each file in request:
     insert source record
 
 for each path in DB not in request:
-  delete source record (cascades to source_tags)
+  soft delete source record (SET deleted_at = now())
+  // source_tags are preserved — soft delete is an UPDATE, not a DELETE
+  // ON DELETE CASCADE is NOT triggered
 ```
 
 #### 3.5.2 Trigger Reconciliation (Frontend → API → Agent)
@@ -527,12 +545,12 @@ POST /api/reconcile
 
 ```json
 {
-  "message": "Reconciliation triggered.",
-  "statusUrl": "/api/reconcile/status/{id}"
+  "message": "Reconciliation triggered."
 }
 ```
 
-The API notifies the Agent via an internal HTTP call. The reconciliation result can be polled at the status URL.
+The API notifies the Agent via an internal HTTP call (`POST /agent/reconcile`). Reconciliation runs asynchronously; the
+result is not polled — the user can re-trigger or check the source list after the scan completes.
 
 ---
 
@@ -544,17 +562,32 @@ The API notifies the Agent via an internal HTTP call. The reconciliation result 
 class SourceService {
     SourceResponse create(CreateSourceRequest request);
     Page<SourceResponse> search(String q, Long authorId, Long tagId, Long formatId, Pageable pageable);
-    SourceResponse get(String path);
-    SourceResponse update(String path, UpdateSourceRequest request);
-    void delete(String path);
+    SourceResponse get(Long id);
+    SourceResponse update(Long id, UpdateSourceRequest request);
+    void purge(Long id);                       // physical delete — only if soft-deleted
+    void markDeleted(String path);             // called by sync reconciliation
+    void reactivate(Long id);                  // called when file reappears
 }
 ```
 
-- `create`: Validates uniqueness of `path`. Creates or resolves `author` by name. Sets `created_at` and `updated_at` to
-  current timestamp.
-- `delete`: Throws `SourceNotFoundException` if path does not exist. Performs physical delete (JPA `delete`). Tag
-  associations are cascade-deleted.
-- `update`: Only modifies provided fields. Re-resolves author if `authorName` is provided.
+- `create`: Handles four cases based on `contentHash` if present:
+    1. **Reactivation**: If a source with the same `path` AND same `content_hash` has `deleted_at` set → clear
+       `deleted_at`, update `content_hash`. Metadata preserved from the original record.
+    2. **Safe-save**: If a source with the same `path` and `deleted_at IS NULL` exists → update `content_hash`,
+       preserve all metadata.
+    3. **Rename**: If a source with the same `content_hash` exists at a different path → transfer metadata
+       (tags, URL, year, edition) to the new record, clear metadata on the old record, soft-delete the old
+       record (`SET deleted_at = now()`).
+    4. **Normal insert**: Otherwise → insert new source with no additional metadata.
+       Creates or resolves `author` by name. Sets `created_at` and `updated_at` to current timestamp.
+- `purge`: Throws `SourceNotFoundException` if id does not exist. Throws `ConflictException` if
+  `deleted_at IS NULL`. Performs physical delete (JPA `delete`). Tag associations are cascade-deleted.
+- `markDeleted`: Sets `deleted_at = now()` on the source with the given path. Idempotent — if already
+  deleted, does nothing. Used by `SyncService` during reconciliation.
+- `reactivate`: Sets `deleted_at = NULL` on a soft-deleted source. Used when a file reappears at the same
+  path with matching content_hash.
+- `update`: Only modifies provided fields. Re-resolves author if `authorName` is provided. Cannot update
+  soft-deleted sources (returns 404).
 - `search`: Delegates to `SourceRepository` with Spring Data JPA `Specification` or `@Query`.
 
 ### 4.2 AuthorService
@@ -599,8 +632,11 @@ class SyncService {
 All repositories extend `JpaRepository`:
 
 ```
-interface SourceRepository extends JpaRepository<Source, String> {
-    // Primary key is path (String)
+interface SourceRepository extends JpaRepository<Source, Long> {
+    // Primary key is id (Long). Active records filtered via @Where on entity.
+    Optional<Source> findByPath(String path);
+    Optional<Source> findByPathAndDeletedAtIsNull(String path);
+    List<Source> findByPathIn(List<String> paths);
 }
 
 interface AuthorRepository extends JpaRepository<Author, Long> {
@@ -646,7 +682,7 @@ Tag filtering requires a subquery or join on `source_tags`:
 ```sql
 AND (:tagId IS NULL OR EXISTS (
     SELECT 1 FROM SourceTag st
-    WHERE st.source.path = s.path AND st.tag.id = :tagId
+    WHERE st.source.id = s.id AND st.tag.id = :tagId
 ))
 ```
 
@@ -661,12 +697,13 @@ V<timestamp>__<description>.sql
 Example:
 
 ```
-V202607010001__create_sources_table.sql
-V202607010002__create_authors_table.sql
-V202607010003__create_tags_table.sql
-V202607010004__create_source_formats_table.sql
+V202607010001__create_authors_table.sql
+V202607010002__create_source_formats_table.sql
+V202607010003__create_sources_table.sql
+V202607010004__create_tags_table.sql
 V202607010005__create_source_tags_table.sql
 V202607010006__seed_source_formats.sql
+V202607010007__add_soft_delete_and_surrogate_id.sql
 ```
 
 **Strategy:**
@@ -675,22 +712,93 @@ V202607010006__seed_source_formats.sql
 - Seed data (source_formats) is a versioned migration with `INSERT` statements.
 - Schema changes follow additive-only pattern: new columns are nullable or have defaults. No destructive `ALTER` in V1.
 
-**Initial schema (`V202607010001__create_sources_table.sql`):**
+**Ordering rationale:**
+
+- `authors` and `source_formats` must be created before `sources` because `sources` has foreign keys to both.
+- `source_tags` requires both `sources` and `tags` to exist.
+- The surrogate ID and soft-delete migration (V7) adds the `id BIGSERIAL` column, `deleted_at`, and the partial unique
+  index. This avoids circular dependencies in the initial schema.
+
+**V1 —`V202607010001__create_authors_table.sql`:**
+
+```sql
+CREATE TABLE authors
+(
+    id   BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    name VARCHAR(255) NOT NULL UNIQUE
+);
+```
+
+**V2 —`V202607010002__create_source_formats_table.sql`:**
+
+```sql
+CREATE TABLE source_formats
+(
+    id   BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    name VARCHAR(50) NOT NULL UNIQUE
+);
+```
+
+**V3 —`V202607010003__create_sources_table.sql`:**
 
 ```sql
 CREATE TABLE sources
 (
-    path             VARCHAR(1024) PRIMARY KEY,
-    name             VARCHAR(512) NOT NULL,
+    path             VARCHAR(1024) NOT NULL,
+    name             VARCHAR(512)  NOT NULL,
     author_id        BIGINT REFERENCES authors (id),
-    source_format_id BIGINT       NOT NULL REFERENCES source_formats (id),
+    source_format_id BIGINT        NOT NULL REFERENCES source_formats (id),
     year             INTEGER,
     edition          VARCHAR(255),
     url              VARCHAR(2048),
-    created_at       TIMESTAMP    NOT NULL DEFAULT NOW(),
-    updated_at       TIMESTAMP    NOT NULL DEFAULT NOW()
+    content_hash     VARCHAR(64),
+    created_at       TIMESTAMP     NOT NULL DEFAULT NOW(),
+    updated_at       TIMESTAMP     NOT NULL DEFAULT NOW()
+);
+
+-- ID and deleted_at are added in V7 via ALTER to avoid
+-- circular dependency with the partial unique index.
+```
+
+**V4 —`V202607010004__create_tags_table.sql`:**
+
+```sql
+CREATE TABLE tags
+(
+    id   BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    name VARCHAR(255) NOT NULL UNIQUE
 );
 ```
+
+**V5 —`V202607010005__create_source_tags_table.sql`:**
+
+```sql
+CREATE TABLE source_tags
+(
+    source_id BIGINT NOT NULL REFERENCES sources (id) ON DELETE CASCADE,
+    tag_id    BIGINT NOT NULL REFERENCES tags (id),
+    PRIMARY KEY (source_id, tag_id)
+);
+```
+
+**V6 —`V202607010006__seed_source_formats.sql`:**
+
+```sql
+INSERT INTO source_formats (name)
+VALUES ('PDF'),
+       ('EPUB'),
+       ('MHTML');
+```
+
+**V7 —`V202607010007__add_soft_delete_and_surrogate_id.sql`:**
+
+See ADR 0002 for the full rationale. This migration:
+
+1. Adds an `id BIGSERIAL` column and sets it as the primary key.
+2. Adds `deleted_at TIMESTAMP` (nullable).
+3. Drops the old `PRIMARY KEY (path)` constraint.
+4. Creates a partial unique index:
+   `CREATE UNIQUE INDEX uq_sources_active_path ON sources (path) WHERE deleted_at IS NULL;`.
 
 ---
 
@@ -767,12 +875,13 @@ Applied at the controller boundary via `@Valid` on request bodies.
 
 **CreateSourceRequest:**
 
-| Field            | Annotation                     | Rule                      |
-|------------------|--------------------------------|---------------------------|
-| `path`           | `@NotBlank`, `@Size(max=1024)` | Required, max 1024 chars  |
-| `name`           | `@NotBlank`, `@Size(max=512)`  | Required, max 512 chars   |
-| `sourceFormatId` | `@NotNull`                     | Must be a valid format ID |
-| `authorName`     | `@Size(max=255)`               | Optional, max 255 chars   |
+| Field            | Annotation                     | Rule                                                           |
+|------------------|--------------------------------|----------------------------------------------------------------|
+| `path`           | `@NotBlank`, `@Size(max=1024)` | Required, max 1024 chars                                       |
+| `name`           | `@NotBlank`, `@Size(max=512)`  | Required, max 512 chars                                        |
+| `sourceFormatId` | `@NotNull`                     | Must be a valid format ID                                      |
+| `authorName`     | `@Size(max=255)`               | Optional, max 255 chars                                        |
+| `contentHash`    | `@Size(min=64, max=64)`        | Optional. If provided, must be a 64-char hex string (SHA-256). |
 
 **UpdateSourceRequest:**
 
@@ -864,19 +973,20 @@ biblocat:
 
 ## 10. API-specific Design Decisions
 
-### 10.1 Path as Primary Key
+### 10.1 Surrogate ID over Natural Key
 
-|               | Decision                                                                                                                          |
-|---------------|-----------------------------------------------------------------------------------------------------------------------------------|
-| **Chosen**    | `path` (VARCHAR) is the JPA `@Id` in the `Source` entity.                                                                         |
-| **Rationale** | The filesystem path is the natural identifier. No surrogate key needed. Simpler code, fewer joins. The Agent always has the path. |
-| **Trade-off** | Rename/move requires a DELETE + CREATE (path changes). URLs in `@PathVariable` must be encoded.                                   |
+|               | Decision                                                                                                                                                                   |
+|---------------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| **Chosen**    | `id` (BIGSERIAL) is the JPA `@Id` in the `Source` entity. `path` has a `UNIQUE WHERE deleted_at IS NULL` constraint.                                                       |
+| **Rationale** | Soft-deleted records can coexist with new records at the same path. Surrogate ID avoids URL encoding issues, simplifies FKs, and enables stable references across renames. |
+| **Trade-off** | Extra join for path-based lookups (minimal). REST paths are numeric instead of human-readable.                                                                             |
+| **Reference** | `docs/decisions/0002-soft-delete-and-surrogate-id.md`                                                                                                                      |
 
 ### 10.2 PATCH for Partial Updates
 
 |                    | Decision                                                                                                                                                                |
 |--------------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| **Chosen**         | `PATCH /api/sources/{path}` for metadata updates.                                                                                                                       |
+| **Chosen**         | `PATCH /api/sources/{id}` for metadata updates.                                                                                                                         |
 | **Rationale**      | Clients should not send full representations for partial changes. PATCH semantics allow sparse JSON — omitted fields are not modified.                                  |
 | **Implementation** | `UpdateSourceRequest` uses `Optional<...>` wrapper types or null-checking: a null field means "do not update", an explicit `null` in the JSON means "clear this field". |
 
@@ -895,3 +1005,21 @@ biblocat:
 | **Chosen**    | The entire reconciliation runs in a single `@Transactional` block.                                                                           |
 | **Rationale** | Atomicity: either all changes apply or none. Prevents partial sync state if the process fails mid-way.                                       |
 | **Risk**      | Long-running transactions on large libraries. Mitigated by the personal-use scope. If needed, can be split into batches in a future version. |
+
+### 10.5 DB-Based Rename and Safe-Save Detection (no in-memory buffer)
+
+|               | Decision                                                                                                                                                                                                                                                                                     |
+|---------------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| **Chosen**    | No in-memory buffer. On `POST /api/sources`, the API queries the `sources` table by `content_hash`: same **path** → safe-save (update hash, metadata preserved); same **hash** different path → rename (transfer metadata, clear old record, soft-delete). Deletions detected only via sync. |
+| **Rationale** | The previous buffer approach (ADR 0001) introduced race conditions, restart vulnerability, and concurrency complexity. Using the database itself as the look-up structure eliminates the buffer entirely: it is persistent, concurrency-safe, and has no TTL.                                |
+| **Trade-off** | Adds one `SELECT` per CREATE (indexed on `content_hash`). Deletions have up to 5-minute latency (sync scan only). Soft delete preserves metadata across deletions (see ADR 0002).                                                                                                            |
+| **Reference** | `docs/decisions/0001-content-hash-rename-detection.md`                                                                                                                                                                                                                                       |
+
+### 10.6 Soft Delete with Surrogate ID
+
+|               | Decision                                                                                                                                                                                                        |
+|---------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| **Chosen**    | Soft delete with surrogate `id` PK. `deleted_at TIMESTAMP` is set when a file disappears from the filesystem. Reactivation requires matching `path` + `content_hash`. Purge only works on soft-deleted records. |
+| **Rationale** | The system serves as an inventory "insurance policy" — metadata is preserved even if files are lost. Surrogate ID avoids conflicts between active and soft-deleted records sharing the same path.               |
+| **Trade-off** | All queries need `WHERE deleted_at IS NULL` (mitigated by Hibernate `@Where`). Soft-deleted records accumulate (trivial for personal use). REST API uses `{id}` instead of `{path}` for endpoint stability.     |
+| **Reference** | `docs/decisions/0002-soft-delete-and-surrogate-id.md`                                                                                                                                                           |
