@@ -11,9 +11,12 @@ Eres un especialista en el backend de BiblioCat, un sistema de catalogación de 
 ## Stack
 
 - **api/**: Spring Boot 4.1, Java 21, Maven, Flyway, PostgreSQL
-- **agent/**: Java 21, Maven, WatchService
+- **agent/**: Java 21, Maven
 
-## Reglas de arquitectura (del SDD)
+## Reglas de arquitectura (newDoc.md)
+
+> **Fuente autoritativa:** `docs/newDoc.md` §3 define todo lo que el sistema puede y no puede hacer. Las reglas
+siguientes son un resumen; ante cualquier duda, consultar esa sección.
 
 - La API es la única que accede a la base de datos y contiene lógica de dominio
 - El Agent monitorea el filesystem y se comunica con la API vía HTTP REST

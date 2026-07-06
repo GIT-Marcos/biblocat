@@ -1,8 +1,13 @@
 # ADR 0001: Content Hash + Hybrid WatchService/Scan for Rename and Safe-Save Detection
 
+**DEPRECATED** — Este ADR describe un enfoque híbrido con WatchService + escaneo periódico. La implementación actual del
+Agent no usa WatchService; la sincronización se realiza únicamente mediante escaneos (inicio, periódico, manual). El
+mecanismo de content hash para rename detection sigue vigente, pero sin el componente WatchService. Ver `docs/newDoc.md`
+§4 para el diseño actual.
+
 ## Status
 
-Accepted
+Accepted → DEPRECATED
 
 ## Context
 

@@ -10,14 +10,23 @@
 
 ## Documentation
 
-All documentation in `docs/` is in **active draft** state. Design decisions are still being refined and may change. If you find contradictions or ambiguities, please ask before implementing.
+The authoritative documentation for development is in the new set of files under `docs/`:
+
+- `docs/newDoc.md` — system architecture, stack, flows
+- `docs/newApiDoc.md` — API, data model, database
+- `docs/newAgentDoc.md` — filesystem monitoring, sync
+- `docs/newFrontDoc.md` — UI, routing, components
+
+The old files (`docs/SDD.md`, `docs/api/SDD.md`, `docs/agent/SDD.md`, `docs/front/SDD.md`) are **DEPRECATED** and should
+only be used as historical reference. Any development decisions must be based on the new documents.
 
 ## Backend
 
 - No root POM. Each Java module has its own Maven wrapper at `api/mvnw` and `agent/mvnw`.
 - Package naming differs: `com.biblocat.api` (api) vs `com.biblocat` (agent).
 - `api/pom.xml` inherits Spring Boot 4.1 parent (Java 21, JUnit 5).
-- `docs/SDD.md` is the system design document (loaded as OpenCode instruction).
+- `docs/newDoc.md` is the system design document (loaded as OpenCode instruction).
+- `docs/SDD.md` (DEPRECATED) — historical reference only.
 
 ## Frontend
 
@@ -37,10 +46,11 @@ All documentation in `docs/` is in **active draft** state. Design decisions are 
 
 ## References
 
-- Architecture & domain model: `docs/SDD.md`
-- API design: `docs/api/SDD.md`
-- Agent design: `docs/agent/SDD.md`
-- Frontend design: `docs/front/SDD.md`
+- Architecture & domain model: `docs/newDoc.md`
+- API design: `docs/newApiDoc.md`
+- Agent design: `docs/newAgentDoc.md`
+- Frontend design: `docs/newFrontDoc.md`
 - Backend sub-agent: `.opencode/agents/backend.md`
 - Frontend sub-agent: `.opencode/agents/frontend.md`
 - Available commands: `.opencode/commands/`
+- Legacy docs (DEPRECATED): `docs/SDD.md`, `docs/api/SDD.md`, `docs/agent/SDD.md`, `docs/front/SDD.md`
