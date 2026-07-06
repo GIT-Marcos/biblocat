@@ -136,7 +136,10 @@ decisión:
 - Tamaño máximo configurable (default: 500 MB). Archivos mayores se saltan con log WARN.
 - Si el archivo se trunca o desaparece durante la lectura, se captura la `IOException`, se loguea y se continúa.
 - **Write race:** se verifica `Files.size()` antes y después del cómputo de hash. Si el tamaño cambió durante la
-  lectura, se descarta el hash y el archivo se salta con log WARN. Se reintenta en el próximo escaneo.
+  lectura, se descarta el hash y se incrementa un contador de reintentos consecutivos para ese archivo. Se
+  salta con log WARN si el contador es ≤ `biblocat.agent.hash.max-retries`, o log ERROR si lo supera. El
+  archivo se reintenta en cada escaneo, pero después de los archivos sin reintentos previos. El contador se
+  resetea al hashear exitosamente. El contador es volátil (memoria, se pierde al reiniciar el Agent).
 
 **Optimización:** No implementada. El Agent computa SHA-256 siempre que la tabla de clasificación lo requiere. Ver
 `docs/Optimization01.md` para el diseño de una optimización futura basada en timestamps del filesystem.
@@ -150,7 +153,8 @@ El Agent extrae el nombre del autor desde la carpeta padre inmediata dentro del 
 1. Se calcula el path relativo del archivo respecto al directorio raíz.
 2. El primer segmento del path relativo es el nombre de la carpeta del autor.
 3. Si el archivo está directamente en la raíz (sin subdirectorios), `authorName = null`.
-4. El nombre se normaliza: strip + Title Case (primera letra de cada palabra en mayúscula).
+4. El nombre se normaliza: strip (eliminar espacios al inicio y final). Se preserva el casing original del nombre de la
+   carpeta.
 5. El Agent envía `authorName` como string; la API se encarga de buscar o crear la entidad Author.
 
 **Ejemplos:**
@@ -161,8 +165,9 @@ El Agent extrae el nombre del autor desde la carpeta padre inmediata dentro del 
 | `biblioteca/Anónimo/poema.pdf`                               | `Anónimo`                |
 | `biblioteca/libro.pdf`                                       | `null`                   |
 
-**RENAME:** En operaciones RENAME, el Agent no envía `authorName` en el contrato. La API re-infere el autor a partir del
-nuevo `path` usando las mismas reglas de inferencia (primer segmento del path relativo, normalizado a Title Case).
+**RENAME:** El Agent envía `authorName` de la misma forma que en CREATE. El autor se re-infere del nuevo path usando las
+reglas de inferencia (§3.7) y se incluye en la operación RENAME. La API nunca infiere autor; solo persiste el valor
+recibido.
 
 ### 3.8. Edge cases
 
@@ -224,15 +229,16 @@ Los edge cases se organizan por la fase del proceso de reconciliación en la que
 
 #### F. Post-procesamiento y solapamiento
 
-| #  | Caso                                                       | Comportamiento                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
-|----|------------------------------------------------------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| 30 | Orphan reactivado con hash distinto al almacenado          | Evaluar `deletedAt` primero. Si `deletedAt ≠ null` y hash coincide → REACTIVATE. Si `deletedAt ≠ null` y hash **no** coincide → CREATE (nuevo source) y el orphan sigue huérfano. Esto ya está reflejado en la tabla de clasificación (§3.5) con el nuevo caso H.                                                                                                                                                                                                           |
-| 31 | Move cross-filesystem (antes "Safe-save que cruza FS")     | El archivo se mueve entre volúmenes distintos (ej: C:\ → D:\). Windows implementa el move cross-filesystem como COPY+DELETE, no como rename atómico. El Agent lo detecta como CREATE + DELETE con hashes distintos. Los metadatos originales se preservan en el soft-delete del source original. Ver `docs/IssueSafeSaveCrossFS.md` para análisis detallado y soluciones de transferencia de metadatos.                                                                     |
-| 32 | Archivo de 0 bytes que luego se escribe con contenido      | CREATE con hash vacío, luego UPDATE en el siguiente escaneo. El source existe brevemente con metadatos vacíos, comportamiento correcto.                                                                                                                                                                                                                                                                                                                                     |
-| 33 | Cambio de hora (DST / ajuste de NTP)                       | Usar `ScheduledExecutorService.scheduleWithFixedRate()` que opera sobre el reloj monotónico e ignora cambios de hora real. No usar `Instant.now()` para calcular el próximo intervalo.                                                                                                                                                                                                                                                                                      |
-| 34 | Dos reconciliaciones superpuestas                          | Usar `AtomicBoolean` como lock. Si hay una reconciliación en curso: la periódica entrante se salta (log DEBUG), la manual entrante se encola (máximo 1 pendiente).                                                                                                                                                                                                                                                                                                          |
-| 35 | Reconciliación periódica tarda más que el intervalo        | Caso tolerado. Cubierto por el caso 34: la periódica salta si hay una en curso. Agregar métrica de duración para detectar escaneos lentos.                                                                                                                                                                                                                                                                                                                                  |
-| 36 | Archivos duplicados con el mismo contenido (hash idéntico) | El caso D clasifica el archivo como RENAME cuando su hash coincide con un source existente, incluso si el usuario solo duplicó el archivo (no lo renombró). El source con metadatos "sigue" al nuevo path; el path original se recrea como CREATE en el próximo escaneo con metadatos vacíos. Comportamiento determinista gracias al tiebreaker alfabético (§3.5). Impacto bajo: la pérdida de metadatos es solo en el path original, no hay pérdida de datos irreversible. |
+| #  | Caso                                                                                                                       | Comportamiento                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+|----|----------------------------------------------------------------------------------------------------------------------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| 30 | Orphan reactivado con hash distinto al almacenado                                                                          | Evaluar `deletedAt` primero. Si `deletedAt ≠ null` y hash coincide → REACTIVATE. Si `deletedAt ≠ null` y hash **no** coincide → CREATE (nuevo source) y el orphan sigue huérfano. Esto ya está reflejado en la tabla de clasificación (§3.5) con el nuevo caso H.                                                                                                                                                                                                                                                                                           |
+| 31 | Move cross-filesystem (antes "Safe-save que cruza FS")                                                                     | El archivo se mueve entre volúmenes distintos (ej: C:\ → D:\). Windows implementa el move cross-filesystem como COPY+DELETE, no como rename atómico. El Agent lo detecta como CREATE + DELETE con hashes distintos. Los metadatos originales se preservan en el soft-delete del source original. Ver `docs/IssueSafeSaveCrossFS.md` para análisis detallado y soluciones de transferencia de metadatos.                                                                                                                                                     |
+| 32 | Archivo de 0 bytes que luego se escribe con contenido                                                                      | CREATE con hash vacío, luego UPDATE en el siguiente escaneo. El source existe brevemente con metadatos vacíos, comportamiento correcto.                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| 33 | Cambio de hora (DST / ajuste de NTP)                                                                                       | Usar `ScheduledExecutorService.scheduleWithFixedRate()` que opera sobre el reloj monotónico e ignora cambios de hora real. No usar `Instant.now()` para calcular el próximo intervalo.                                                                                                                                                                                                                                                                                                                                                                      |
+| 34 | Dos reconciliaciones superpuestas                                                                                          | Usar `AtomicBoolean` como lock. Si hay una reconciliación en curso: la periódica entrante se salta (log DEBUG), la manual entrante se encola (máximo 1 pendiente).                                                                                                                                                                                                                                                                                                                                                                                          |
+| 35 | Reconciliación periódica tarda más que el intervalo                                                                        | Caso tolerado. Cubierto por el caso 34: la periódica salta si hay una en curso. Agregar métrica de duración para detectar escaneos lentos.                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| 36 | Archivos duplicados con el mismo contenido (hash idéntico)                                                                 | El caso D clasifica el archivo como RENAME cuando su hash coincide con un source existente, incluso si el usuario solo duplicó el archivo (no lo renombró). El source con metadatos "sigue" al nuevo path; el path original se recrea como CREATE en el próximo escaneo con metadatos vacíos. Comportamiento determinista gracias al tiebreaker alfabético (§3.5). Impacto bajo: la pérdida de metadatos es solo en el path original, no hay pérdida de datos irreversible.                                                                                 |
+| 37 | **Safe-save en el mismo FS** — aplicaciones que usan el patrón DELETE+CREATE (ej: editores de texto, navegadores, Acrobat) | Entre el DELETE y el CREATE hay una ventana (ms) donde el archivo no existe en el FS. Si el escaneo ocurre en esa ventana, el source se clasifica como DELETE (caso F). En el próximo escaneo, el archivo reaparece con hash distinto → CREATE (caso E/H). Los metadatos se preservan en el orphan. Si la API implementa transferencia por hash (ver `docs/IssueSafeSaveCrossFS.md`), se recuperan automáticamente en el CREATE. Probabilidad: baja. Impacto: medio (pérdida temporal de metadatos hasta la transferencia por hash o re-asignación manual). |
 
 ### 3.9. Contrato de comunicación con la API
 
@@ -277,7 +283,8 @@ Envía un batch de operaciones para su persistencia. Cada operación es idempote
       "sourceId": "550e8400-e29b-41d4-a716-446655440000",
       "name": "Cien años de soledad",
       "path": "biblioteca/Gabriel García Márquez/Cien años de soledad.pdf",
-      "pathLower": "biblioteca/gabriel garcía márquez/cien años de soledad.pdf"
+      "pathLower": "biblioteca/gabriel garcía márquez/cien años de soledad.pdf",
+      "authorName": "Gabriel García Márquez"
     },
     {
       "type": "UPDATE",
@@ -322,7 +329,7 @@ Envía un batch de operaciones para su persistencia. Cada operación es idempote
 | Tipo       | `type` | `sourceId` | `name` | `path` | `pathLower` | `contentHash` | `fileFormat` | `authorName` |
 |------------|--------|------------|--------|--------|-------------|---------------|--------------|--------------|
 | CREATE     | ✓      | —          | ✓      | ✓      | ✓           | ✓             | ✓            | opcional     |
-| RENAME     | ✓      | ✓          | ✓      | ✓      | ✓           | —             | —            | —            |
+| RENAME     | ✓      | ✓          | ✓      | ✓      | ✓           | —             | —            | opcional     |
 | UPDATE     | ✓      | ✓          | —      | —      | —           | ✓             | —            | —            |
 | DELETE     | ✓      | —          | —      | ✓      | —           | —             | —            | —            |
 | REACTIVATE | ✓      | —          | —      | ✓      | —           | ✓             | —            | —            |
@@ -344,15 +351,16 @@ las divide en múltiples requests secuenciales.
 
 ### 6.1. Propiedades del proceso de reconciliación
 
-| Propiedad                              | Tipo   | Default     | Descripción                                                   |
-|----------------------------------------|--------|-------------|---------------------------------------------------------------|
-| `biblocat.agent.scan.root-dir`         | String | (requerido) | Ruta absoluta al directorio raíz de la biblioteca             |
-| `biblocat.agent.scan.period-seconds`   | int    | 300         | Intervalo entre reconciliaciones periódicas (segundos)        |
-| `biblocat.agent.scan.max-depth`        | int    | 10          | Profundidad máxima de subdirectorios para escanear            |
-| `biblocat.agent.hash.timeout-seconds`  | int    | 30          | Timeout máximo para el cómputo de hash por archivo            |
-| `biblocat.agent.hash.max-file-size-mb` | int    | 500         | Tamaño máximo de archivo para hashear (MB). 0 = sin límite    |
-| `biblocat.agent.batch.size`            | int    | 50          | Máximo de operaciones por request a la API                    |
-| `biblocat.agent.retry.max-attempts`    | int    | 3           | Reintentos máximos ante fallo de conexión con la API          |
-| `biblocat.agent.retry.backoff-seconds` | int    | 2           | Backoff inicial entre reintentos (se duplica en cada intento) |
+| Propiedad                              | Tipo   | Default     | Descripción                                                           |
+|----------------------------------------|--------|-------------|-----------------------------------------------------------------------|
+| `biblocat.agent.scan.root-dir`         | String | (requerido) | Ruta absoluta al directorio raíz de la biblioteca                     |
+| `biblocat.agent.scan.period-seconds`   | int    | 300         | Intervalo entre reconciliaciones periódicas (segundos)                |
+| `biblocat.agent.scan.max-depth`        | int    | 10          | Profundidad máxima de subdirectorios para escanear                    |
+| `biblocat.agent.hash.timeout-seconds`  | int    | 30          | Timeout máximo para el cómputo de hash por archivo                    |
+| `biblocat.agent.hash.max-file-size-mb` | int    | 500         | Tamaño máximo de archivo para hashear (MB). 0 = sin límite            |
+| `biblocat.agent.hash.max-retries`      | int    | 3           | Reintentos consecutivos de hash antes de loguear ERROR por write-race |
+| `biblocat.agent.batch.size`            | int    | 50          | Máximo de operaciones por request a la API                            |
+| `biblocat.agent.retry.max-attempts`    | int    | 3           | Reintentos máximos ante fallo de conexión con la API                  |
+| `biblocat.agent.retry.backoff-seconds` | int    | 2           | Backoff inicial entre reintentos (se duplica en cada intento)         |
 
 ## 7. Testing

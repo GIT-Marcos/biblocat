@@ -92,21 +92,22 @@ BiblioCat **no** es:
 
 ## 2. Glosario
 
-| Término         | Definición                                                                                                                                                                                                    | Módulo          |
-|-----------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|-----------------|
-| Source          | Archivo PDF, EPUB o MHTML descubierto en el directorio de biblioteca y representado como registro en la base de datos.                                                                                        | API             |
-| Agent           | Daemon Java que sincroniza el catálogo con el filesystem mediante escaneos programados (inicio, periódico, manual) y comunica cambios a la API vía HTTP.                                                      | Agent           |
-| API             | Aplicación Spring Boot que expone endpoints REST, gestiona persistencia con JPA y ejecuta migraciones Flyway.                                                                                                 | API             |
-| Frontend        | Aplicación React que provee la interfaz de usuario para navegar y gestionar el catálogo.                                                                                                                      | Front           |
-| Reconciliation  | Proceso de sincronización entre el estado actual del filesystem y los registros en la base de datos.                                                                                                          | Agent + API     |
-| Filesystem (FS) | Directorio local que contiene los archivos de biblioteca. Es la fuente de verdad del sistema.                                                                                                                 | Agent           |
-| Source format   | Discriminante de tipo de archivo: PDF, EPUB o MHTML.                                                                                                                                                          | API             |
-| Tag             | Etiqueta asignada por el usuario para categorizar sources. Relación muchos a muchos con sources.                                                                                                              | API + Front     |
-| Soft delete     | Marcado de un registro como eliminado (se establece `deleted_at`) sin borrarlo físicamente. Los metadatos se preservan.                                                                                       | API             |
-| Content hash    | Hash SHA-256 del contenido del archivo. Usado para detectar renombres y safe-save.                                                                                                                            | Agent + API     |
-| Orphan source   | Source cuyo archivo fue eliminado del FS pero cuyo registro de metadatos persiste en la base de datos (soft-delete). Puede ser reactivada si el archivo reaparece.                                            | API             |
-| Metadata        | Información asociada a un source en la base de datos: nombre, path, formato, año, edición, URL, autor, tags, content hash y timestamps. Se preserva durante el soft-delete y se transfiere en caso de rename. | API             |
-| ADR             | Architecture Decision Record. Documento que registra una decisión arquitectónica, su contexto y consecuencias.                                                                                                | docs/decisions/ |
+| Término         | Definición                                                                                                                                                                                                      | Módulo          |
+|-----------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|-----------------|
+| Source          | Archivo PDF, EPUB o MHTML descubierto en el directorio de biblioteca y representado como registro en la base de datos.                                                                                          | API             |
+| Agent           | Daemon Java que sincroniza el catálogo con el filesystem mediante escaneos programados (inicio, periódico, manual) y comunica cambios a la API vía HTTP.                                                        | Agent           |
+| API             | Aplicación Spring Boot que expone endpoints REST, gestiona persistencia con JPA y ejecuta migraciones Flyway.                                                                                                   | API             |
+| Frontend        | Aplicación React que provee la interfaz de usuario para navegar y gestionar el catálogo.                                                                                                                        | Front           |
+| Reconciliation  | Proceso de sincronización entre el estado actual del filesystem y los registros en la base de datos.                                                                                                            | Agent + API     |
+| Filesystem (FS) | Directorio local que contiene los archivos de biblioteca. Es la fuente de verdad del sistema.                                                                                                                   | Agent           |
+| Source format   | Discriminante de tipo de archivo: PDF, EPUB o MHTML.                                                                                                                                                            | API             |
+| Tag             | Etiqueta asignada por el usuario para categorizar sources. Relación muchos a muchos con sources.                                                                                                                | API + Front     |
+| Write-race      | Condición de carrera donde el Agent intenta leer/hashear un archivo mientras este está siendo escrito por otro proceso. El Agent debe detectar y reintentar (backoff) para evitar hashes parciales o corruptos. | Agent           |
+| Soft delete     | Marcado de un registro como eliminado (se establece `deleted_at`) sin borrarlo físicamente. Los metadatos se preservan.                                                                                         | API             |
+| Content hash    | Hash SHA-256 del contenido del archivo. Usado para detectar renombres y safe-save.                                                                                                                              | Agent + API     |
+| Orphan source   | Source cuyo archivo fue eliminado del FS pero cuyo registro de metadatos persiste en la base de datos (soft-delete). Puede ser reactivada si el archivo reaparece.                                              | API             |
+| Metadata        | Información asociada a un source en la base de datos: nombre, path, formato, año, edición, URL, autor, tags, content hash y timestamps. Se preserva durante el soft-delete y se transfiere en caso de rename.   | API             |
+| ADR             | Architecture Decision Record. Documento que registra una decisión arquitectónica, su contexto y consecuencias.                                                                                                  | docs/decisions/ |
 
 ## 3. Qué puede hacer el usuario y qué no
 
@@ -115,7 +116,8 @@ BiblioCat **no** es:
 **Sources**
 
 - Todos los sources provienen del filesystem. No existe alta manual desde el frontend.
-- Puede editar año, edición, URL y autor de un source.
+- Puede editar año, edición y URL de un source.
+- El autor se determina por la carpeta padre en el FS. Para cambiarlo, renombre la carpeta.
 - El nombre del source solo se cambia desde el filesystem, no desde la aplicación.
 
 **Borrado (2 etapas obligatorias)**
@@ -338,7 +340,8 @@ Cada sub-sección detalla el trigger, los pasos y las notas particulares de cada
 - Si el rename cambia la carpeta padre, la API actualiza el autor automáticamente.
 - El safe-save se detecta porque el contenido fue reemplazado en el mismo path (hash distinto).
 - Los metadatos editables por el usuario se preservan durante el rename.
-- El autor se re-infere del nuevo path automáticamente por la API siguiendo las reglas de inferencia de autor (ver §3.7 de newAgentDoc.md).
+- El autor se re-infere del nuevo path automáticamente por la API siguiendo las reglas de inferencia de autor (ver §3.7
+  de newAgentDoc.md).
 
 #### 6.1.3. Eliminación de source (soft-delete)
 
