@@ -77,8 +77,8 @@ Costo: medio (lógica adicional en el procesador de batch). Cubre el mismo ciclo
 
 ## Recomendación
 
-Opción B + Opción C. Son complementarias: B cubre ciclos distintos, C cubre el mismo ciclo. Ambas son de implementación
-acotada y cierran el hueco de metadata loss.
+**Opción B implementada actualmente en la doc.** La API transfiere metadatos por hash en CREATE, cubriendo ciclos
+separados (DELETE en escaneo anterior, CREATE ahora). Opción C (detección intra-batch) pospuesta por el momento.
 
 ## Impacto
 

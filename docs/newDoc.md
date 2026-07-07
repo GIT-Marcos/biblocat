@@ -278,7 +278,8 @@ mediante un **único proceso de reconciliación** que el Agent ejecuta en cada e
 1. **Consultar** — el Agent solicita a la API el estado conocido de todos los sources (`GET /api/sources/paths`).
 2. **Escanear y clasificar** — el Agent recorre el FS con `Files.walk()`, lista los archivos y clasifica cada uno contra
    el estado conocido.
-3. **Hashear** — solo para los archivos que lo requieren, computa SHA-256.
+3. **Hashear** — computa SHA-256 para cada archivo. No hay optimización activa (ver `docs/Optimization01.md` para
+   estrategias futuras).
 4. **Enviar** — agrupa las operaciones en batches y las envía a la API (`POST /api/sources/reconcile`).
 5. **Persistir** — la API aplica cada operación según su tipo.
 
@@ -416,11 +417,47 @@ Flujos iniciados por acciones del usuario desde el frontend.
 
 **Componentes involucrados:** Front → API → Agent → API → DB
 
-**Diagrama Mermaid:** *(pendiente)*
+**Diagrama Mermaid:**
 
-**Enumeración de pasos:** *(pendiente)*
+```mermaid
+sequenceDiagram
+    participant Front as Frontend
+    participant API
+    participant Agent
+    participant DB
+    Front ->> API: POST /api/reconcile
+    API -->> Front: 200 { pending: true }
+    Note over Agent: Polling cada 30s
+    Agent ->> API: GET /api/reconcile/pending
+    API -->> Agent: 200 { pending: true }
+    Agent ->> API: POST /api/reconcile/ack
+    API -->> Agent: 200
+    Note over Agent: Ejecuta escaneo: GET /paths, walk, clasificar
+    Agent ->> API: POST /api/sources/reconcile
+    API ->> DB: Persistir cambios
+    API -->> Agent: 200 { processed: N }
+```
 
-**Notas:** *(pendiente)*
+**Enumeración de pasos:**
+
+1. El frontend llama a `POST /api/reconcile`.
+2. La API setea `reconciliation_pending = true` en la base de datos y responde inmediatamente.
+3. El Agent, cada `biblocat.agent.poll.interval-seconds` (default: 30), consulta `GET /api/reconcile/pending`.
+4. Si `pending = true` y **no** hay otra reconciliación en curso, el Agent:
+    - Llama a `POST /api/reconcile/ack` para resetear el flag.
+    - Inicia el escaneo completo (ver §6.1: consulta paths, walk, clasificar, hash, batch, POST reconcile).
+5. Si `pending = true` pero hay otra reconciliación en curso, el Agent omite el intento (log DEBUG). El próximo poll lo
+   reintentará.
+6. El escaneo se ejecuta normalmente. No hay resultado de vuelta al frontend — el usuario ve los cambios consultando la
+   lista de sources.
+
+**Notas:**
+
+- La reconciliación manual es **asíncrona**: la API responde inmediatamente, la ejecución ocurre en el Agent vía
+  polling.
+- Si el Agent crashea después del ack pero antes del escaneo, el flag ya se reseteó. La reconciliación se recupera en el
+  próximo escaneo programado (cada 5 minutos).
+- La superposición con reconciliaciones periódicas se maneja mediante `AtomicBoolean` (ver `newAgentDoc.md` §3.8 EC34).
 
 ### 6.3. System-triggered
 
