@@ -54,3 +54,18 @@ only be used as historical reference. Any development decisions must be based on
 - Frontend sub-agent: `.opencode/agents/frontend.md`
 - Available commands: `.opencode/commands/`
 - Legacy docs (DEPRECATED): `docs/SDD.md`, `docs/api/SDD.md`, `docs/agent/SDD.md`, `docs/front/SDD.md`
+
+## Problem tracking
+
+Functional issues are recorded as Markdown files in `docs/issues/`. Use the template at `docs/issues/template.md`.
+Format:
+
+```
+**Estado: ❌ No resuelto | 🟡 Parcialmente resuelto | ✅ Resuelto (doc) | ✅ Resuelto (impl)**
+**Severidad: 🟩 1** (mejora) | 🟧 2 (importante) | 🟥 3 (bloqueante)**
+**Nota:** <summary>
+
+## Solución tomada  ← only if at least partially resolved
+```
+
+When an issue is fully resolved, move it to `docs/issues/resolved/`.

@@ -1,5 +1,10 @@
 # Issue: Safe-save que cruza filesystems — pérdida de metadatos
 
+**Estado: 🟡 Parcialmente resuelto (doc)**
+**Severidad: 🟧 2**
+
+**Nota:** Opción B documentada en EC31 (§3.8.F), pero no reflejada en el contrato de `POST /sources/reconcile` (§3.9).
+
 ## Contexto
 
 Cuando un archivo se mueve entre filesystems (ej: de `C:\` a `D:\`), el Agent puede clasificar la operación como
@@ -79,6 +84,18 @@ Costo: medio (lógica adicional en el procesador de batch). Cubre el mismo ciclo
 
 **Opción B implementada actualmente en la doc.** La API transfiere metadatos por hash en CREATE, cubriendo ciclos
 separados (DELETE en escaneo anterior, CREATE ahora). Opción C (detección intra-batch) pospuesta por el momento.
+
+## Solución tomada
+
+Se adoptó la **Opción B**: la API transfiere metadatos por `contentHash` en CREATE.
+
+- Al recibir un CREATE, la API busca en sources soft-deleteados con el mismo hash (EC31).
+- Si hay exactamente 1: transfiere metadatos y purga el orphan.
+- Si hay 0 o >1: no transfiere.
+
+**Pendiente:** documentar este comportamiento en el contrato de `POST /sources/reconcile` (`newAgentDoc.md §3.9`).
+
+Referencias: `newAgentDoc.md §3.8.F` (EC31), `docs/issues/IssueSafeSaveCrossFS.md`.
 
 ## Impacto
 

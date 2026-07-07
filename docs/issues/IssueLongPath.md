@@ -1,5 +1,10 @@
 # Issue: Prefijo `\\?\` en Windows para paths largos
 
+**Estado: ❌ No resuelto**
+**Severidad: 🟩 1**
+
+**Nota:** Pendiente de decidir entre NIO puro (sin `\\?\`) o soporte con APIs legacy. Diseño bifurcado en EC5.
+
 ## Contexto
 
 La documentación actual (EC5) indica que para manejar paths que exceden el límite de 260 caracteres (MAX_PATH) en

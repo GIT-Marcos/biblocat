@@ -12,9 +12,14 @@ módulo.
 | `newApiDoc`   | API REST, modelo de datos, base de datos, migraciones, excepciones |
 | `newAgentDoc` | Monitoreo del filesystem, sincronización, ciclo de vida del agente |
 | `newFrontDoc` | Componentes de UI, rutas, páginas, configuración del frontend      |
+| `Issue*`      | Problemas funcionales detectados, con severidad y estado           | `docs/issues/` |
 
 Las decisiones arquitectónicas documentadas (ADR) se encuentran en `docs/decisions/`. Los comandos de build, test y
 desarrollo están definidos en `.opencode/commands/`.
+
+Los issues funcionales se documentan en `docs/issues/`. Cada issue indica estado (resuelto, parcial, no resuelto),
+severidad (🟩 1 mejora, 🟧 2 importante, 🟥 3 bloqueante) y, cuando aplica, la solución adoptada. Los issues
+completamente resueltos se mueven a `docs/issues/resolved/`.
 
 ### 0.1. Scope por documento
 
