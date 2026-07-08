@@ -392,7 +392,7 @@ Cada sub-sección detalla el trigger, los pasos y las notas particulares de cada
 
 Flujos iniciados por acciones del usuario desde el frontend.
 
-#### 6.2.1. Editar metadatos
+#### 6.2.1. Editar metadatos (Pendiente)
 
 **Trigger:** Usuario modifica año, edición, URL o autor de un source.
 
@@ -404,7 +404,7 @@ Flujos iniciados por acciones del usuario desde el frontend.
 
 **Notas:** *(pendiente)*
 
-#### 6.2.2. Purga de orphan source
+#### 6.2.2. Purga de orphan source (Pendiente)
 
 **Trigger:** Usuario elimina definitivamente un orphan source desde la aplicación.
 
@@ -462,7 +462,7 @@ sequenceDiagram
   polling.
 - Si el Agent crashea después del ack pero antes del escaneo, el flag ya se reseteó. La reconciliación se recupera en el
   próximo escaneo programado (cada 5 minutos).
-- La superposición con reconciliaciones periódicas se maneja mediante `AtomicBoolean` (ver `newAgentDoc.md` §3.8 EC34).
+- La superposición con reconciliaciones periódicas se maneja mediante `AtomicBoolean` (ver `newAgentDoc.md` §2.8 EC34).
 
 ### 6.3. System-triggered
 
@@ -470,24 +470,111 @@ Flujos iniciados por el propio ciclo de vida del Agent.
 
 #### 6.3.1. Inicio del Agent (full scan)
 
-**Trigger:** El Agent se inicia y ejecuta un escaneo completo del FS.
+**Trigger:** El Agent se inicia (JVM launch) y ejecuta un escaneo completo del FS inmediatamente.
 
 **Componentes involucrados:** Agent → API → DB
 
-**Diagrama Mermaid:** *(pendiente)*
+**Diagrama Mermaid:**
 
-**Enumeración de pasos:** *(pendiente)*
+```mermaid
+sequenceDiagram
+    participant Main as Agent Main
+    participant Sched as Scheduler
+    participant Poll as Poller
+    participant Recon as Reconciliation Runner
+    participant API
+    participant DB
+    Main ->> Main: Cargar configuración, validar root-dir
+    Main ->> JVM: addShutdownHook
+    Main ->> Sched: scheduleWithFixedDelay(period=300s, delay=0)
+    Main ->> Poll: scheduleWithFixedDelay(period=30s, delay=0)
+    Note over Sched: Primera ejecución inmediata (full scan)<br/>Siguientes cada 300s tras finalizar
+    Note over Poll: Polling inmediato de reconciliación manual
+    Sched ->> Recon: Ejecutar reconciliación
+    Note over Recon: AtomicBoolean.compareAndSet(false, true)
+    Recon ->> API: GET /api/sources/paths
+    API -->> Recon: 200 [sources...]
+    Recon ->> Recon: Files.walk + classify + hash + batch
+    Recon ->> API: POST /api/sources/reconcile
+    API ->> DB: Persistir cambios
+    API -->> Recon: 200 {processed: N}
+    Recon ->> Recon: libera AtomicBoolean (finally)
+```
 
-**Notas:** *(pendiente)*
+**Enumeración de pasos:**
+
+1. `Agent.main()` carga la configuración desde propiedades (o CLI args). Valida que el directorio raíz exista y sea un directorio. Resuelve symlinks con `rootDir.toRealPath()`.
+2. Registra un ShutdownHook en la JVM para interrupción graceful de los executors.
+3. Crea el **Scheduler** (`ScheduledExecutorService`, 1 hilo) con `scheduleWithFixedDelay(task, delay=0, period=scan.period-seconds)`. El `delay=0` fuerza un full scan inmediato al arrancar.
+4. Crea el **Poller** (`ScheduledExecutorService`, 1 hilo) con `scheduleWithFixedDelay(task, delay=0, period=poll.interval-seconds)`. Comienza a sondear reconciliaciones manuales inmediatamente.
+5. **Race en t=0:** Scheduler y Poller arrancan simultáneamente y compiten por el `AtomicBoolean` (`compareAndSet(false, true)`). El primero que lo adquiere ejecuta la reconciliación de inicio. El otro loguea DEBUG y omite su ejecución.
+6. La reconciliación ejecuta el pipeline completo descrito en §6.1:
+   - Consulta el estado conocido (`GET /api/sources/paths`) con reintentos configurables.
+   - Recorre el FS (`Files.walk`), filtra por extensión (`.pdf`, `.epub`, `.mhtml`).
+   - Clasifica cada archivo contra el estado conocido (tabla de §6.1, casos A-H).
+   - Computa SHA-256 para los archivos que lo requieren.
+   - Agrupa operaciones en batches (default: 50) ordenados: RENAME → UPDATE → REACTIVATE → CREATE → DELETE.
+   - Envía cada batch a la API (`POST /api/sources/reconcile`) con reintentos y backoff.
+7. La API persiste los cambios en la base de datos.
+8. Al finalizar (éxito o error), libera el `AtomicBoolean` en un bloque `finally`.
+
+**Notas:**
+
+- El Scheduler usa `delay = 0` para garantizar que el catálogo se sincronice inmediatamente al arrancar el Agent, sin esperar al primer intervalo periódico.
+- La race condition en `t=0` entre Scheduler y Poller es **correcta por diseño**: cualquiera de los dos puede ejecutar el primer escaneo. El perdedor lo reintenta en su próximo ciclo.
+- El ShutdownHook se registra **antes** de arrancar los executors para asegurar que captura cualquier interrupción, incluso si ocurre durante el bootstrap.
+- Si el root-dir no existe al iniciar, el Agent aborta con código de salida ≠ 0 y no arranca los executors. Requiere intervención del usuario.
 
 #### 6.3.2. Reconciliación periódica
 
-**Trigger:** Timer interno del Agent (cada 5 minutos).
+**Trigger:** Timer interno del Agent (cada `biblocat.agent.scan.period-seconds`, default: 300s = 5 minutos).
 
 **Componentes involucrados:** Agent → API → DB
 
-**Diagrama Mermaid:** *(pendiente)*
+**Diagrama Mermaid:**
 
-**Enumeración de pasos:** *(pendiente)*
+```mermaid
+sequenceDiagram
+    participant Agent as Agent (Scheduler)
+    participant API
+    participant DB
+    Note over Agent: scheduleWithFixedDelay dispara<br/>tras delay desde fin del escaneo anterior
+    Agent ->> Agent: AtomicBoolean.compareAndSet(false, true)
+    alt lock adquirido
+        Agent ->> API: GET /api/sources/paths
+        API -->> Agent: 200 [sources...]
+        Agent ->> Agent: Files.walk root-dir
+        Agent ->> Agent: Clasificar (casos A-H)
+        Agent ->> Agent: Hash SHA-256 (si aplica)
+        Agent ->> Agent: Agrupar en batches
+        Agent ->> API: POST /api/sources/reconcile (por cada batch)
+        API ->> DB: Persistir cambios
+        API -->> Agent: 200 {processed: N}
+        Agent ->> Agent: libera AtomicBoolean (finally)
+    else lock ocupado
+        Note over Agent: Log DEBUG, omitir<br/>(otra reconciliación en curso)
+    end
+```
 
-**Notas:** *(pendiente)*
+**Enumeración de pasos:**
+
+1. El `ScheduledExecutorService` dispara la reconciliación periódica tras el intervalo configurado, medido desde el fin del escaneo anterior (`scheduleWithFixedDelay`).
+2. El Agent intenta adquirir el `AtomicBoolean.reconciliationInProgress` con `compareAndSet(false, true)`.
+   - Si retorna `false` → hay otra reconciliación en curso (manual o periódica superpuesta) → log DEBUG, omitir. El próximo ciclo lo reintenta.
+   - Si retorna `true` → lock adquirido, continuar.
+3. El Agent ejecuta el pipeline completo de reconciliación (idéntico al de §6.1):
+   - Consulta `GET /api/sources/paths` con reintentos (default: 3, backoff 2s/4s/8s). Si se agotan, aborta la reconciliación y libera el lock.
+   - Recorre el FS con `Files.walk(rootDir, maxDepth)`. Filtra por extensión (`.pdf`, `.epub`, `.mhtml`). Normaliza paths.
+   - Clasifica cada archivo contra el estado conocido aplicando la tabla de §6.1.
+   - Computa SHA-256 para los casos que lo requieren (B, C, D, E, H) con timeout y detección de write-race.
+   - Agrupa operaciones en batches de hasta `batch.size` (default: 50), ordenados: RENAME → UPDATE → REACTIVATE → CREATE → DELETE.
+   - Envía cada batch secuencialmente a `POST /api/sources/reconcile`.
+4. La API persiste los cambios en la base de datos y responde con el resumen de operaciones procesadas.
+5. Al finalizar (éxito o error), libera el `AtomicBoolean` en un bloque `finally`.
+
+**Notas:**
+
+- El uso de `scheduleWithFixedDelay` (no `scheduleAtFixedRate`) garantiza que el intervalo se mide desde el **fin** de una ejecución hasta el **inicio** de la siguiente. Si el escaneo tarda más que el período configurado, la siguiente ejecución espera a que termine + el delay. No se saltan reconciliaciones.
+- El `AtomicBoolean` es una salvaguarda secundaria: `scheduleWithFixedDelay` ya impide la auto-superposición del Scheduler, pero el lock protege contra superposición con reconciliaciones manuales disparadas por el Poller (§6.2.3).
+- La primera reconciliación periódica no ocurre hasta 300s después del full scan de inicio (§6.3.1). Esto evita dos escaneos consecutivos al arrancar.
+- Configuraciones relevantes: `biblocat.agent.scan.period-seconds` (default: 300), `biblocat.agent.scan.max-depth` (default: 10), `biblocat.agent.batch.size` (default: 50). Ver `newAgentDoc.md` §4.1 para la lista completa.

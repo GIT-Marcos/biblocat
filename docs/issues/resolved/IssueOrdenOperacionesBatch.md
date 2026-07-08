@@ -3,7 +3,7 @@
 **Estado: ✅ Resuelto (doc)**
 **Severidad: 🟥 3**
 
-**Nota:** DELETE por `sourceId` (tabla §3.9), orden RENAME→DELETE (EC39), filtro `Set<sourceId>` global (EC38), y RENAME de soft-deleteado (EC40).
+**Nota:** DELETE por `sourceId` (tabla §2.9), orden RENAME→DELETE (EC39), filtro `Set<sourceId>` global (EC38), y RENAME de soft-deleteado (EC40).
 
 ## Contexto
 
@@ -79,12 +79,12 @@ simple. Son complementarias y de bajo costo de implementación.
 
 Se implementaron las opciones 1 y 2 de las propuestas:
 
-- DELETE por `sourceId` (tabla `§3.9`: `sourceId: ✓`, `path: opcional`).
+- DELETE por `sourceId` (tabla `§2.9`: `sourceId: ✓`, `path: opcional`).
 - El Agent emite RENAME antes que DELETE (EC39).
 - El Agent mantiene un `Set<sourceId>` global para filtrar DELETEs de sources renombrados (EC38).
 - RENAME sobre source soft-deleteado lo reactiva (EC40).
 
-Referencias: `newAgentDoc.md §3.8.F` (EC38, EC39, EC40), `newAgentDoc.md §3.9` (tabla campos requeridos).
+Referencias: `newAgentDoc.md §2.8.F` (EC38, EC39, EC40), `newAgentDoc.md §2.9` (tabla campos requeridos).
 
 ## Impacto
 

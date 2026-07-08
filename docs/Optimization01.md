@@ -3,7 +3,7 @@
 ## Contexto
 
 Durante una reconciliación, el Agent computa SHA-256 para los archivos clasificados en los casos B, C, D, E y H de la
-tabla de clasificación (ver `newAgentDoc.md` §3.5). En directorios con cientos o miles de archivos, el cómputo de hash
+tabla de clasificación (ver `newAgentDoc.md` §2.5). En directorios con cientos o miles de archivos, el cómputo de hash
 es la operación más costosa en términos de I/O de disco.
 
 Para el **caso A** (path existe en API, hash coincide, `deletedAt = null`), el archivo no ha cambiado. En teoría, si
@@ -11,7 +11,7 @@ pudiéramos confirmar que el archivo no se modificó desde el último escaneo, p
 
 ## Problema
 
-El Agent **no mantiene estado local** entre escaneos (`newAgentDoc.md` §3.1). La API es la fuente de verdad del estado
+El Agent **no mantiene estado local** entre escaneos (`newAgentDoc.md` §2.1). La API es la fuente de verdad del estado
 registrado. Para determinar si un archivo cambió sin hashear, el Agent necesita:
 
 1. Saber el `lastModified` timestamp y el `size` del archivo en el momento del último escaneo.
@@ -131,7 +131,7 @@ Se elige **Opción C: Sin optimización — siempre hashear**.
 
 Motivos:
 
-1. Consistencia con el principio de "sin estado local" (`newAgentDoc.md` §3.1).
+1. Consistencia con el principio de "sin estado local" (`newAgentDoc.md` §2.1).
 2. Simplicidad de implementación.
 3. Sin riesgo de falsos negativos.
 4. El cuello de botella no es CPU sino I/O, y en la práctica los directorios de biblioteca personal

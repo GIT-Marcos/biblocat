@@ -3,7 +3,7 @@
 **Estado: 🟡 Parcialmente resuelto (doc)**
 **Severidad: 🟧 2**
 
-**Nota:** Opción B documentada en EC31 (§3.8.F), pero no reflejada en el contrato de `POST /sources/reconcile` (§3.9).
+**Nota:** Opción B documentada en EC31 (§2.8.F), pero no reflejada en el contrato de `POST /sources/reconcile` (§2.9).
 
 ## Contexto
 
@@ -93,9 +93,9 @@ Se adoptó la **Opción B**: la API transfiere metadatos por `contentHash` en CR
 - Si hay exactamente 1: transfiere metadatos y purga el orphan.
 - Si hay 0 o >1: no transfiere.
 
-**Pendiente:** documentar este comportamiento en el contrato de `POST /sources/reconcile` (`newAgentDoc.md §3.9`).
+**Pendiente:** documentar este comportamiento en el contrato de `POST /sources/reconcile` (`newAgentDoc.md §2.9`).
 
-Referencias: `newAgentDoc.md §3.8.F` (EC31), `docs/issues/IssueSafeSaveCrossFS.md`.
+Referencias: `newAgentDoc.md §2.8.F` (EC31), `docs/issues/IssueSafeSaveCrossFS.md`.
 
 ## Impacto
 

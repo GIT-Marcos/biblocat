@@ -2,11 +2,46 @@
 
 ## 1. Stack detallado de tecnologías y dependencias
 
-## 2. Diagrama de componentes
+### 1.1. Lenguaje y build
 
-## 3. Sincronización
+| Capa               | Tecnología | Versión | Notas                                    |
+|--------------------|------------|---------|------------------------------------------|
+| Lenguaje           | Java       | 21      | —                                        |
+| Build              | Maven      | —       | Wrapper en `agent/mvnw`                  |
+| JSON serialización | Gson       | 2.13.1  | 0 dependencias transitivas               |
+| Logging            | Log4j 2    | 2.23.1  | API directa (`log4j-api` + `log4j-core`) |
 
-### 3.1. Visión general
+### 1.2. APIs del JDK utilizadas
+
+| API                                             | Propósito                                                 |
+|-------------------------------------------------|-----------------------------------------------------------|
+| `java.net.http.HttpClient`                      | Comunicación HTTP con la API REST                         |
+| `java.nio.file.Files.walk()`                    | Recorrido del árbol de directorios (profundidad limitada) |
+| `java.security.MessageDigest`                   | Cómputo de hash SHA-256                                   |
+| `java.io.DigestInputStream`                     | Stream wrapper para hashear el contenido del archivo      |
+| `java.util.concurrent.ScheduledExecutorService` | Programación de reconciliaciones periódicas y polling     |
+| `java.util.concurrent.atomic.AtomicBoolean`     | Lock entre reconciliaciones superpuestas                  |
+| `java.text.Normalizer`                          | Normalización Unicode NFC de paths                        |
+
+### 1.3. Testing
+
+| Framework | Versión         | Propósito             |
+|-----------|-----------------|-----------------------|
+| JUnit     | 6.1.1 (Jupiter) | Tests unitarios       |
+| Mockito   | (por definir)   | Mocking de HttpClient |
+
+### 1.4. Dependencias externas (fuera del JDK)
+
+| Dependencia                                  | Ámbito  | Justificación                                       |
+|----------------------------------------------|---------|-----------------------------------------------------|
+| `com.google.code.gson:gson:2.13.1`           | compile | Serializar/deserializar JSON en comunicación HTTP   |
+| `org.apache.logging.log4j:log4j-api:2.23.1`  | compile | API de logging                                      |
+| `org.apache.logging.log4j:log4j-core:2.23.1` | runtime | Implementación de Log4j (solo necesaria en runtime) |
+| `org.junit.jupiter:junit-jupiter:6.1.1`      | test    | Tests unitarios                                     |
+
+## 2. Sincronización
+
+### 2.1. Visión general
 
 La reconciliación es el proceso mediante el cual el Agent sincroniza el estado del filesystem con el estado registrado
 en la base de datos. Se ejecuta en tres escenarios:
@@ -24,7 +59,7 @@ intermediario: computa el delta entre ambos y envía las operaciones resultantes
 El Agent **no mantiene ningún archivo local** de estado. Cada reconciliación comienza consultando a la API el estado
 conocido y recorriendo el FS desde cero.
 
-### 3.2. Flujo completo del proceso
+### 2.2. Flujo completo del proceso
 
 ```mermaid
 flowchart TD
@@ -44,13 +79,13 @@ El proceso completo consta de 8 pasos:
 1. Agent solicita el estado actual de la API (`GET /api/sources/paths`).
 2. Agent recorre el directorio raíz con `Files.walk()`, respetando la profundidad máxima configurada.
 3. Agent filtra archivos por extensión: solo `.pdf`, `.epub`, `.mhtml`.
-4. Agent clasifica cada archivo contra el estado conocido según la tabla de clasificación (§3.5).
-5. Para los archivos que lo requieren, Agent computa SHA-256 con timeout configurable (§3.6).
+4. Agent clasifica cada archivo contra el estado conocido según la tabla de clasificación (§2.5).
+5. Para los archivos que lo requieren, Agent computa SHA-256 con timeout configurable (§2.6).
 6. Agent agrupa las operaciones resultantes en batches de N elementos (default: 50).
 7. Agent envía cada batch a la API (`POST /api/sources/reconcile`).
 8. API procesa cada operación, persiste los cambios y responde con resumen.
 
-### 3.3. Consulta del estado conocido (GET /api/sources/paths)
+### 2.3. Consulta del estado conocido (GET /api/sources/paths)
 
 El Agent inicia cada reconciliación obteniendo el estado actual de la base de datos desde la API.
 
@@ -73,7 +108,7 @@ El Agent inicia cada reconciliación obteniendo el estado actual de la base de d
 **Retry:** Los reintentos ante fallo de conexión son configurables (default: 3 intentos con backoff de 2s, 4s, 8s). Si
 se agotan, la reconciliación se aborta y no se envía ningún cambio.
 
-### 3.4. Escaneo del filesystem
+### 2.4. Escaneo del filesystem
 
 El Agent recorre el directorio raíz de biblioteca usando la API estándar de Java NIO.
 
@@ -99,7 +134,7 @@ El Agent recorre el directorio raíz de biblioteca usando la API estándar de Ja
 - Los paths se normalizan a Unicode NFC (`Normalizer.normalize(path, Normalizer.Form.NFC)`) para consistencia con la
   normalización NFC nativa de Windows.
 
-### 3.5. Clasificación de archivos
+### 2.5. Clasificación de archivos
 
 Por cada archivo en el FS, el Agent determina su relación con el estado conocido aplicando la siguiente tabla de
 decisión:
@@ -130,7 +165,7 @@ decisión:
   aparece como RENAME (caso D) en el mismo escaneo, el DELETE se omite — el source fue movido, no eliminado. El Agent
   mantiene un conjunto (`Set<sourceId>`) de sources renombrados durante todo el escaneo (a través de múltiples batches).
 
-### 3.6. Cómputo de hash SHA-256
+### 2.6. Cómputo de hash SHA-256
 
 **Algoritmo:** `java.security.MessageDigest.getInstance("SHA-256")` combinado con `DigestInputStream`.
 
@@ -150,7 +185,7 @@ decisión:
 **Optimización:** No implementada. El Agent computa SHA-256 siempre que la tabla de clasificación lo requiere. Ver
 `docs/Optimization01.md` para el diseño de una optimización futura basada en timestamps del filesystem.
 
-### 3.7. Inferencia de autor
+### 2.7. Inferencia de autor
 
 El Agent extrae el nombre del autor desde la carpeta padre inmediata dentro del directorio raíz.
 
@@ -172,10 +207,10 @@ El Agent extrae el nombre del autor desde la carpeta padre inmediata dentro del 
 | `biblioteca/libro.pdf`                                       | `null`                   |
 
 **RENAME:** El Agent envía `authorName` de la misma forma que en CREATE. El autor se re-infere del nuevo path usando las
-reglas de inferencia (§3.7) y se incluye en la operación RENAME. La API nunca infiere autor; solo persiste el valor
+reglas de inferencia (§2.7) y se incluye en la operación RENAME. La API nunca infiere autor; solo persiste el valor
 recibido.
 
-### 3.8. Edge cases
+### 2.8. Edge cases
 
 Los edge cases se organizan por la fase del proceso de reconciliación en la que ocurren.
 
@@ -222,7 +257,7 @@ Los edge cases se organizan por la fase del proceso de reconciliación en la que
 | 22 | Múltiples archivos con el mismo contenido (hash idéntico) | Agrupar por hash. Si hay más de un CREATE con el mismo hash, usar orden alfabético de path como tiebreaker para garantizar comportamiento determinista.                                                                                                                                                                                                              |
 | 23 | Dos archivos que difieren solo en casing                  | No aplica. Windows tiene FS case-insensitive, `Files.walk()` nunca puede encontrar dos archivos que difieran solo en casing. El índice único en `pathLower` en la DB se mantiene como restricción de integridad.                                                                                                                                                     |
 | 24 | Unicode NFC en nombres de archivo                         | Normalizar con `Normalizer.normalize(path, Normalizer.Form.NFC)` al leer del FS y al computar `pathLower`. Consistencia con la normalización NFC nativa de Windows.                                                                                                                                                                                                  |
-| 40 | RENAME con `sourceId` de un source soft-deleteado         | El Agent clasifica como RENAME si el hash coincide con un source con `deletedAt ≠ null` (caso D de §3.5). La API debe: (1) limpiar `deletedAt`, (2) actualizar `path` y `pathLower`, (3) actualizar `authorName` si cambió, (4) preservar metadatos (tags, año, URL). El RENAME sobre soft-deleteado siempre reactiva — no debe lanzar error por `deletedAt ≠ null`. |
+| 40 | RENAME con `sourceId` de un source soft-deleteado         | El Agent clasifica como RENAME si el hash coincide con un source con `deletedAt ≠ null` (caso D de §2.5). La API debe: (1) limpiar `deletedAt`, (2) actualizar `path` y `pathLower`, (3) actualizar `authorName` si cambió, (4) preservar metadatos (tags, año, URL). El RENAME sobre soft-deleteado siempre reactiva — no debe lanzar error por `deletedAt ≠ null`. |
 
 #### E. Comunicación con la API
 
@@ -238,20 +273,20 @@ Los edge cases se organizan por la fase del proceso de reconciliación en la que
 
 | #  | Caso                                                                                                                             | Comportamiento                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
 |----|----------------------------------------------------------------------------------------------------------------------------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| 30 | Orphan reactivado con hash distinto al almacenado                                                                                | Evaluar `deletedAt` primero. Si `deletedAt ≠ null` y hash coincide → REACTIVATE. Si `deletedAt ≠ null` y hash **no** coincide → CREATE (nuevo source) y el orphan sigue huérfano. Esto ya está reflejado en la tabla de clasificación (§3.5) con el nuevo caso H.                                                                                                                                                                                                                                                                                                                                                              |
+| 30 | Orphan reactivado con hash distinto al almacenado                                                                                | Evaluar `deletedAt` primero. Si `deletedAt ≠ null` y hash coincide → REACTIVATE. Si `deletedAt ≠ null` y hash **no** coincide → CREATE (nuevo source) y el orphan sigue huérfano. Esto ya está reflejado en la tabla de clasificación (§2.5) con el nuevo caso H.                                                                                                                                                                                                                                                                                                                                                              |
 | 31 | Move cross-filesystem (antes "Safe-save que cruza FS")                                                                           | El archivo se mueve entre volúmenes distintos (ej: C:\ → D:\). Windows implementa el move cross-filesystem como COPY+DELETE, no como rename atómico. El Agent lo detecta como CREATE + DELETE con hashes distintos. Los metadatos originales se preservan en el soft-delete del source original. La API implementa transferencia de metadatos por `contentHash` en CREATE (Opción B del issue): al recibir un CREATE, busca un soft-deleteado con el mismo hash. Si hay exactamente 1, transfiere los metadatos al nuevo source y purga el orphan. Si hay 0 o >1, no transfiere. Ver `docs/issues/IssueSafeSaveCrossFS.md`.    |
 | 32 | Archivo de 0 bytes que luego se escribe con contenido                                                                            | CREATE con hash vacío, luego UPDATE en el siguiente escaneo. El source existe brevemente con metadatos vacíos, comportamiento correcto.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
 | 33 | Cambio de hora (DST / ajuste de NTP)                                                                                             | Usar `ScheduledExecutorService.scheduleWithFixedDelay()` que opera sobre el reloj monotónico e ignora cambios de hora real. No usar `Instant.now()` para calcular el próximo intervalo. `scheduleWithFixedDelay` garantiza N segundos entre el fin de una ejecución y el inicio de la siguiente, evitando el skipping de reconciliaciones cuando el escaneo tarda más que el intervalo (ver EC42).                                                                                                                                                                                                                             |
 | 34 | Dos reconciliaciones superpuestas                                                                                                | Usar `AtomicBoolean` como lock entre reconciliaciones. La reconciliación manual se detecta por polling (`GET /api/reconcile/pending`) y no utiliza cola local — el flag `pending` en la API actúa como cola de máximo 1. Si el poll detecta `pending = true` pero hay una reconciliación en curso, se omite (log DEBUG); el próximo poll lo reintentará. Al iniciar una reconciliación manual, el Agent llama a `POST /api/reconcile/ack` para resetear el flag inmediatamente. Si el Agent crashea después del ack pero antes de comenzar el escaneo, el próximo escaneo programado (cada 5 min) lo recupera.                 |
 | 35 | Reconciliación periódica tarda más que el intervalo                                                                              | Mitigado por `scheduleWithFixedDelay` (ver EC33 y EC42). Si el escaneo tarda más que el intervalo, la siguiente ejecución se programa N segundos después del fin de la actual. El intervalo entre fines de ejecución siempre es fijo. Agregar métrica de duración para detectar escaneos lentos.                                                                                                                                                                                                                                                                                                                               |
-| 36 | Archivos duplicados con el mismo contenido (hash idéntico)                                                                       | El caso D clasifica el archivo como RENAME cuando su hash coincide con un source existente, incluso si el usuario solo duplicó el archivo (no lo renombró). El source con metadatos "sigue" al nuevo path; el path original se recrea como CREATE en el próximo escaneo con metadatos vacíos. Comportamiento determinista gracias al tiebreaker alfabético (§3.5). Impacto bajo: la pérdida de metadatos es solo en el path original, no hay pérdida de datos irreversible.                                                                                                                                                    |
+| 36 | Archivos duplicados con el mismo contenido (hash idéntico)                                                                       | El caso D clasifica el archivo como RENAME cuando su hash coincide con un source existente, incluso si el usuario solo duplicó el archivo (no lo renombró). El source con metadatos "sigue" al nuevo path; el path original se recrea como CREATE en el próximo escaneo con metadatos vacíos. Comportamiento determinista gracias al tiebreaker alfabético (§2.5). Impacto bajo: la pérdida de metadatos es solo en el path original, no hay pérdida de datos irreversible.                                                                                                                                                    |
 | 37 | **Safe-save en el mismo FS** — aplicaciones que usan el patrón DELETE+CREATE (ej: editores de texto, navegadores, Acrobat)       | Entre el DELETE y el CREATE hay una ventana (ms) donde el archivo no existe en el FS. Si el escaneo ocurre en esa ventana, el source se clasifica como DELETE (caso F). En el próximo escaneo, el archivo reaparece con hash distinto → CREATE (caso E/H). Los metadatos se preservan en el orphan. Si la API implementa transferencia por hash (ver `docs/issues/IssueSafeSaveCrossFS.md`), se recuperan automáticamente en el CREATE. Probabilidad: baja. Impacto: medio (pérdida temporal de metadatos hasta la transferencia por hash o re-asignación manual).                                                             |
 | 38 | **DELETE de source renombrado en el mismo escaneo** — carpeta de autor renombrada genera RENAME + DELETE para los mismos sources | El Agent filtra DELETE cuyo `sourceId` coincide con un RENAME del mismo escaneo. Usa un `Set<sourceId>` global al escaneo (no por batch). Esto evita soft-deletear el source que fue movido. El path viejo simplemente queda libre — no requiere DELETE.                                                                                                                                                                                                                                                                                                                                                                       |
 | 39 | **Orden de operaciones dentro del batch** — la API procesa secuencialmente en el orden del array                                 | El Agent emite operaciones en el orden: RENAME → UPDATE → REACTIVATE → CREATE → DELETE. La API procesa en orden de llegada. Esto garantiza que RENAME se procese antes que DELETE del mismo source (ver EC38), y que REACTIVATE tenga prioridad sobre CREATE para el mismo path.                                                                                                                                                                                                                                                                                                                                               |
 | 41 | **Crash del Agent entre batches de una reconciliación**                                                                          | Los cambios de batches ya procesados por la API persisten. Los batches no enviados se reintentan en el próximo escaneo. Si el usuario purga un source que quedó soft-deleteado en un batch procesado, y ese source debía reactivarse en un batch no enviado, los metadatos se pierden irreversiblemente. Limitación aceptable — la reconciliación es eventalmente consistente y el próximo escaneo la corrige.                                                                                                                                                                                                                 |
 | 42 | **Reconciliación periódica con `scheduleWithFixedDelay`**                                                                        | La periodicidad se implementa con `ScheduledExecutorService.scheduleWithFixedDelay()` (no `scheduleWithFixedRate`). Esto garantiza N segundos entre el fin de una ejecución y el inicio de la siguiente, eliminando el skipping cuando el escaneo tarda más que el intervalo. El `AtomicBoolean` (EC34) se mantiene como salvaguarda adicional para evitar superposición con reconciliación manual. El `AtomicBoolean` se setea a `true` al comenzar cualquier reconciliación (`compareAndSet(false, true)`, abortar si falla) y se libera a `false` en un bloque `finally` para garantizar liberación incluso ante excepción. |
 
-### 3.9. Contrato de comunicación con la API
+### 2.9. Contrato de comunicación con la API
 
 #### GET /api/sources/paths
 
@@ -405,31 +440,226 @@ asíncrona — el Agent la recoge por polling.
 }
 ```
 
-## 4. Inicio y ciclo de vida
+## 3. Procesos del agente
 
-### 4.1. Secuencia de inicio
+### 3.1. Arquitectura de hilos
 
-### 4.2. Secuencia de cierre
+El Agent ejecuta cuatro procesos concurrentes:
 
-### 4.3. Otros eventos
+| Proceso       | Hilo          | Tipo                           | Disparo                                                                                     |
+|---------------|---------------|--------------------------------|---------------------------------------------------------------------------------------------|
+| Scheduler     | 1 hilo        | `ScheduledExecutorService`     | `scheduleWithFixedDelay(period=scan.period-seconds, delay=0)` — primera ejecución inmediata |
+| Poller        | 1 hilo        | `ScheduledExecutorService`     | `scheduleWithFixedDelay` cada `poll.interval-seconds` (30s)                                 |
+| Recon Runner  | Tarea efímera | Ejecutado por Scheduler/Poller | Al dispararse una reconciliación                                                            |
+| Shutdown Hook | 1 hilo        | `Runtime.addShutdownHook`      | JVM shutdown                                                                                |
 
-## 5. Procesos del agente
+```mermaid
+graph TD
+    subgraph "Agent Main"
+        S[Scheduler Thread]
+        P[Poller Thread]
+        H[Shutdown Hook]
+    end
 
-## 6. Configuraciones y propiedades
+subgraph "Reconciliation Runner (tarea efímera)"
+SC[Scanner<br/>Files.walk]
+CL[Classifier<br/>tabla §2.5]
+HA[Hasher<br/>SHA-256]
+BA[Batching<br/>agrupar N ops]
+SE[Sender<br/>HTTP a API]
+end
 
-### 6.1. Propiedades del proceso de reconciliación
+S -->|delay =0, luego cada 300s|RR[Iniciar Reconcil.]
+P -->|cada 30s|RR
+RR --> ACQ{AtomicBoolean<br/>compareAndSet}
+ACQ -->|false = ocupado|SKIP[Log DEBUG, omitir]
+ACQ -->|true = adquirido|SC
+SC --> CL
+CL --> HA
+HA --> BA
+BA --> SE
+SE -->|finally| RELEASE[AtomicBoolean = false]
+H -->| shutdown|SHUT[Interrumpir executors]
+```
 
-| Propiedad                              | Tipo   | Default     | Descripción                                                                  |
-|----------------------------------------|--------|-------------|------------------------------------------------------------------------------|
-| `biblocat.agent.scan.root-dir`         | String | (requerido) | Ruta absoluta al directorio raíz de la biblioteca                            |
-| `biblocat.agent.scan.period-seconds`   | int    | 300         | Intervalo entre reconciliaciones periódicas (segundos)                       |
-| `biblocat.agent.scan.max-depth`        | int    | 10          | Profundidad máxima de subdirectorios para escanear                           |
-| `biblocat.agent.poll.interval-seconds` | int    | 30          | Intervalo entre verificaciones de reconciliación manual pendiente (segundos) |
-| `biblocat.agent.hash.timeout-seconds`  | int    | 30          | Timeout máximo para el cómputo de hash por archivo                           |
-| `biblocat.agent.hash.max-file-size-mb` | int    | 500         | Tamaño máximo de archivo para hashear (MB). 0 = sin límite                   |
-| `biblocat.agent.hash.max-retries`      | int    | 3           | Reintentos consecutivos de hash antes de loguear ERROR por write-race        |
-| `biblocat.agent.batch.size`            | int    | 50          | Máximo de operaciones por request a la API                                   |
-| `biblocat.agent.retry.max-attempts`    | int    | 3           | Reintentos máximos ante fallo de conexión con la API                         |
-| `biblocat.agent.retry.backoff-seconds` | int    | 2           | Backoff inicial entre reintentos (se duplica en cada intento)                |
+**Coordinación entre hilos:**
 
-## 7. Testing
+- **`AtomicBoolean` (`reconciliationInProgress`):** protege contra superposición de reconciliaciones. Se adquiere con
+  `compareAndSet(false, true)` al iniciar cualquier reconciliación. Se libera al terminar (éxito o error).
+- **Scheduler vs Poller:** compiten por el mismo `AtomicBoolean`. Si un hilo adquiere el lock, el otro omite su
+  ejecución y loguea DEBUG. En el próximo ciclo lo reintenta.
+- **Scheduler vs Scheduler:** `scheduleWithFixedDelay` garantiza que no hay superposición porque espera a que termine la
+  ejecución actual + delay antes de programar la siguiente.
+- **Poller vs Poller:** misma garantía que Scheduler.
+- **Shutdown Hook:** interrumpe ambos `ScheduledExecutorService` con `shutdown()`, espera hasta
+  `biblocat.agent.shutdown.grace-period-seconds` (default: 5s) y fuerza `shutdownNow()` si expira el plazo.
+- **Race en t=0:** Al iniciar, Scheduler y Poller arrancan simultáneamente (ambos con `delay=0`). El `AtomicBoolean`
+  resuelve la contención: el primer hilo que adquiere el lock ejecuta la reconciliación de startup; el otro loguea DEBUG
+  y omite. Correcto por diseño.
+
+### 3.2. Pipeline de reconciliación
+
+Dentro de una reconciliación, las fases se ejecutan **secuencialmente** (cada una completa antes de pasar a la
+siguiente). No hay colas asíncronas entre fases.
+
+```mermaid
+flowchart LR
+    A[Scanner<br/>Files.walk] -->|List<Path>| B[Classifier<br/>tabla §2.5]
+B -->|List<Operation>|C[Hasher<br/>SHA-256]
+C -->|List<Operation>|D[Batching<br/>agrupar]
+D -->|" Batch [] "|E[Sender<br/>POST /reconcile]
+```
+
+#### 3.2.1. Scanner
+
+- Invoca `Files.walk(rootDir, maxDepth)` con `maxDepth` configurable (default: 10).
+- Normaliza paths: separadores `\` → `/`, Unicode NFC, `pathLower`.
+- Filtra por extensión: `.pdf`, `.epub`, `.mhtml` (case-insensitive). Otras extensiones se loguean DEBUG y se omiten.
+- Paths bloqueados por otro proceso se saltan con log WARN.
+- Directorio raíz se verifica con `Files.exists()` antes de walk. Si no existe se aborta.
+- **Produce:** `List<NormalizedPath>` con `path`, `pathLower`, `fileFormat`.
+
+#### 3.2.2. Classifier
+
+- Recibe la lista de paths del FS y el estado conocido de la API (`GET /api/sources/paths`).
+- Construye índices en memoria: `Map<pathLower, SourceState>` y `Map<contentHash, SourceState>`.
+- Clasifica cada archivo contra el estado conocido aplicando la tabla de §2.5.
+- Mantiene `Set<sourceId>` de sources renombrados durante todo el escaneo para filtrar DELETEs duplicados (EC38).
+- **Determinismo:** múltiples CREATE con mismo hash se ordenan alfabéticamente por path.
+- **Produce:** `List<Operation>` con tipo, sourceId (si aplica), path, hash, fileFormat, authorName.
+
+#### 3.2.3. Hasher
+
+- Recibe solo las operaciones que requieren hash (casos B, C, D, E, H de §2.5).
+- Computa SHA-256 con `MessageDigest.getInstance("SHA-256")` + `DigestInputStream`.
+- Timeout configurable por archivo (default: 30s).
+- Write-race detection: verifica `Files.size()` antes y después del cómputo. Si el tamaño cambió, descarta y reintenta
+  en el próximo escaneo.
+- **Errores:** timeout → skip (log WARN), archivo > tamaño máximo → skip (log WARN), sin permisos → skip (log WARN),
+  write-race → skip (log WARN, contador de reintentos).
+- **Produce:** actualiza `contentHash` en las operaciones pendientes.
+
+#### 3.2.4. Batching
+
+- Agrupa las operaciones en arrays de hasta `batch.size` (default: 50).
+- Ordena las operaciones dentro del batch: RENAME → UPDATE → REACTIVATE → CREATE → DELETE.
+- Si el total de operaciones excede `batch.size`, divide en múltiples batches secuenciales.
+- **Produce:** `List<Operation[]>`.
+
+#### 3.2.5. Sender
+
+- Envía cada batch a `POST /api/sources/reconcile` mediante `HttpClient` de Java 11+.
+- Reintentos configurables (default: 3, backoff 2s → 4s → 8s).
+- Procesa respuesta: log WARN por cada `error` individual en la respuesta. En 4xx (excepto 409) abandona el batch sin
+  reintentar. En 409 reintenta 1 vez.
+- Verifica `response.processed` para tracking.
+
+### 3.3. Secuencia de inicio
+
+```mermaid
+sequenceDiagram
+    participant Main as Agent Main
+    participant Sched as Scheduler
+    participant Poll as Poller
+    participant Recon as Reconciliation Runner
+    participant API
+    Main ->> JVM: addShutdownHook
+    Main ->> Sched: scheduleWithFixedDelay(period=300s, delay=0)
+    Main ->> Poll: scheduleWithFixedDelay(period=30s, delay=0)
+    Note over Sched: Primera ejecución inmediata (full scan de inicio)<br/>Siguientes cada 300s tras finalizar
+    Note over Poll: Comienza polling inmediato
+    Sched ->> Recon: Ejecutar reconciliación (adquiere AtomicBoolean)
+    Recon ->> API: GET /api/sources/paths
+    API -->> Recon: 200 [sources...]
+    Recon ->> Recon: Files.walk + classify + hash + batch
+    Recon ->> API: POST /api/sources/reconcile
+    API -->> Recon: 200 {processed: N}
+    Recon ->> Recon: libera AtomicBoolean (finally)
+```
+
+**Notas:**
+
+- El Scheduler usa `delay = 0` para ejecutar un full scan inmediatamente al iniciar el Agent. Las siguientes
+  reconciliaciones periódicas ocurren cada `scan.period-seconds` tras finalizar la anterior (garantizado por
+  `scheduleWithFixedDelay`).
+- El Poller usa `delay = 0` para comenzar a verificar reconciliaciones manuales inmediatamente. En t=0 compite con el
+  Scheduler por el `AtomicBoolean`.
+- El Shutdown Hook se registra antes de arrancar los executors.
+
+### 3.4. Secuencia de cierre
+
+**Trigger:** La JVM recibe una señal de shutdown (Ctrl+C, SIGTERM, cierre del proceso) e invoca el
+ShutdownHook registrado.
+
+**Componentes involucrados:** Agent (ShutdownHook)
+
+**Diagrama Mermaid:**
+
+```mermaid
+sequenceDiagram
+    participant JVM as JVM
+    participant Hook as ShutdownHook
+    participant Sched as Scheduler
+    participant Poll as Poller
+    participant Recon as Reconciliation Runner
+    participant HTTP as HTTP Client
+    JVM ->> Hook: shutdown signal
+    Hook ->> Hook: Log inicio de shutdown
+    Hook ->> Sched: shutdown() (no new tasks)
+    Hook ->> Poll: shutdown() (no new polls)
+    Hook ->> Recon: check AtomicBoolean
+    alt reconciliation in progress
+        Hook ->> Hook: await termination (grace period)
+        Recon ->> Hook: completes or timeout
+    end
+    Hook ->> Sched: shutdownNow() (force)
+    Hook ->> Poll: shutdownNow() (force)
+    Hook ->> HTTP: close()
+    Hook ->> Hook: Log shutdown complete
+```
+
+**Enumeración de pasos:**
+
+1. La JVM invoca el ShutdownHook registrado por `Agent.main()` al recibir una señal de terminación.
+2. El ShutdownHook loguea el inicio del shutdown.
+3. Llama a `Scheduler.shutdown()` y `Poller.shutdown()` para prevenir el envío de nuevas tareas.
+4. Verifica el estado del `AtomicBoolean.reconciliationInProgress`:
+    - Si `true`: espera hasta `biblocat.agent.shutdown.grace-period-seconds` (default: 5s) a que la
+      reconciliación en curso finalice normalmente.
+    - Si `false`: continúa inmediatamente.
+5. Transcurrido el grace period, llama a `shutdownNow()` en ambos executors para forzar la interrupción
+   de tareas aún activas.
+6. Cierra el `HttpClient` compartido.
+7. Loguea la finalización del shutdown.
+
+**Notas:**
+
+- El ShutdownHook se registra al inicio del Agent (§3.3), antes de arrancar los executors, garantizando
+  que captura señales incluso durante el bootstrap.
+- Si hay una reconciliación en curso, el shutdown espera pasivamente hasta el grace period — no aborta
+  activamente la reconciliación. Las operaciones ya enviadas a la API son idempotentes, por lo que una
+  interrupción no deja estado inconsistente.
+- Si el grace period expira, `shutdownNow()` interrumpe los hilos vía `Thread.interrupt()`. La
+  reconciliación en curso debe manejar `InterruptedException` y liberar el `AtomicBoolean` en su
+  bloque `finally` para evitar que quede lockeado permanentemente.
+- El grace period se configura mediante `biblocat.agent.shutdown.grace-period-seconds` (default: 5s).
+
+## 4. Configuraciones y propiedades
+
+### 4.1. Propiedades del proceso de reconciliación
+
+| Propiedad                                      | Tipo   | Default     | Descripción                                                                                                                           |
+|------------------------------------------------|--------|-------------|---------------------------------------------------------------------------------------------------------------------------------------|
+| `biblocat.agent.scan.root-dir`                 | String | (requerido) | Ruta absoluta al directorio raíz de la biblioteca                                                                                     |
+| `biblocat.agent.scan.period-seconds`           | int    | 300         | Intervalo entre reconciliaciones periódicas posteriores al primer escaneo (segundos). La primera se ejecuta inmediatamente al iniciar |
+| `biblocat.agent.scan.max-depth`                | int    | 10          | Profundidad máxima de subdirectorios para escanear                                                                                    |
+| `biblocat.agent.poll.interval-seconds`         | int    | 30          | Intervalo entre verificaciones de reconciliación manual pendiente (segundos)                                                          |
+| `biblocat.agent.hash.timeout-seconds`          | int    | 30          | Timeout máximo para el cómputo de hash por archivo                                                                                    |
+| `biblocat.agent.hash.max-file-size-mb`         | int    | 500         | Tamaño máximo de archivo para hashear (MB). 0 = sin límite                                                                            |
+| `biblocat.agent.hash.max-retries`              | int    | 3           | Reintentos consecutivos de hash antes de loguear ERROR por write-race                                                                 |
+| `biblocat.agent.batch.size`                    | int    | 50          | Máximo de operaciones por request a la API                                                                                            |
+| `biblocat.agent.retry.max-attempts`            | int    | 3           | Reintentos máximos ante fallo de conexión con la API                                                                                  |
+| `biblocat.agent.retry.backoff-seconds`         | int    | 2           | Backoff inicial entre reintentos (se duplica en cada intento)                                                                         |
+| `biblocat.agent.shutdown.grace-period-seconds` | int    | 5           | Tiempo de espera para shutdown graceful antes de forzar cierre                                                                        |
+
+## 5. Testing (Será definido cuando el código este desarrollado)
