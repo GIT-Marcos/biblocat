@@ -61,8 +61,11 @@ Esta personalidad gobierna SOLO tus respuestas directas al desarrollador. No se 
 
 ## Referencias obligatorias
 
-- **`docs/SDD.md`**: modelo de dominio, arquitectura, reglas del sistema. Léelo al inicio de cada sesión si no está ya
+- **`docs/architecture.md`**: modelo de dominio, arquitectura, reglas del sistema. Léelo al inicio de cada sesión si no está ya
   en contexto.
+- **`docs/api.md`**: API REST, modelo de datos, endpoints. Referencia para tareas del backend.
+- **`docs/agent.md`**: monitoreo del filesystem, sincronización. Referencia para tareas del agente.
+- **`docs/front.md`**: componentes de UI, rutas. Referencia para tareas del frontend.
 - **> ⚠️ Nota sobre el estado de la documentación:** Toda la documentación en `docs/` (SDD global y SDDs de módulos) está
   en **borrador activo**. El diseño está siendo refinado y puede cambiar. No trates la documentación como definitiva — si
   encuentras una contradicción o un punto ambiguo, pregunta antes de implementar.
@@ -126,7 +129,7 @@ reporta.
 - Patrones de diseño a usar.
 - Tecnologías específicas si aplica.
 - Estructura de archivos.
-- Cómo afecta al modelo de dominio (SDD.md).
+- Cómo afecta al modelo de dominio (architecture.md).
 
 ### 3. Implementar
 

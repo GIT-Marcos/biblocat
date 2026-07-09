@@ -1,4 +1,6 @@
-# ADR 0002: Soft Delete and Surrogate ID for Metadata Preservation
+# ADR 0001: Soft Delete and Surrogate ID for Metadata Preservation
+
+**Tipo:** 🏛️ Decisión
 
 ## Status
 
@@ -24,7 +26,7 @@ creates issues with:
   `/a.pdf`, then a new file `/a.pdf` is created), the natural key conflicts with a soft-deleted
   record.
 
-The content-hash rename detection approach (ADR 0001) defines the `content_hash` column on
+The content-hash rename detection approach defines the `content_hash` column on
 `sources` for correlation. Soft delete naturally complements it by preserving state between
 deletions, renames, and reactivations.
 
@@ -36,19 +38,19 @@ We will implement **soft delete** with a **surrogate primary key** (`id`).
 
 #### sources
 
-| Change                   | Detail                                                                                                                                                                                                                     |
-|--------------------------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| **Drop PK on `path`**    | Remove PRIMARY KEY constraint from `path`.                                                                                                                                                                                 |
-| **Add `id`**             | `id BIGSERIAL PRIMARY KEY` — new surrogate identifier.                                                                                                                                                                     |
-| **Add `deleted_at`**     | `deleted_at TIMESTAMP NULL` — set when a file is removed from FS.                                                                                                                                                          |
-| **Partial unique index** | `CREATE UNIQUE INDEX idx_sources_active_path ON sources(path) WHERE deleted_at IS NULL` — ensures no two active sources share the same path.                                                                               |
-| **Metadata cleaning**    | When metadata is transferred during a rename (see ADR 0001), the old soft-deleted record's metadata fields (`year`, `edition`, `url`, and `source_tags` associations) are cleared so reactivation produces a clean record. |
+| Change                   | Detail                                                                                                                                                                                                                                          |
+|--------------------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| **Drop PK on `path`**    | Remove PRIMARY KEY constraint from `path`.                                                                                                                                                                                                      |
+| **Add `id`**             | `id UUID PRIMARY KEY DEFAULT gen_random_uuid()` — new surrogate identifier.                                                                                                                                                                     |
+| **Add `deleted_at`**     | `deleted_at TIMESTAMP NULL` — set when a file is removed from FS.                                                                                                                                                                               |
+| **Partial unique index** | `CREATE UNIQUE INDEX idx_sources_active_path ON sources(path) WHERE deleted_at IS NULL` — ensures no two active sources share the same path.                                                                                                    |
+| **Metadata cleaning**    | When metadata is transferred during a rename (see content-hash rename detection), the old soft-deleted record's metadata fields (`year`, `edition`, `url`, and `source_tags` associations) are cleared so reactivation produces a clean record. |
 
 #### source_tags
 
 | Change        | Detail                                                             |
 |---------------|--------------------------------------------------------------------|
-| **FK change** | `source_path VARCHAR` → `source_id BIGINT`                         |
+| **FK change** | `source_path VARCHAR` → `source_id UUID`                           |
 | **New FK**    | `FOREIGN KEY (source_id) REFERENCES sources(id) ON DELETE CASCADE` |
 | **New PK**    | `PRIMARY KEY (source_id, tag_id)`                                  |
 
@@ -74,7 +76,10 @@ filesystem:
 
 #### 2. Reactivation (File reappears in FS)
 
-When the Agent detects `ENTRY_CREATE` for a path that has a soft-deleted record:
+When the Agent detects a file at a path that has a soft-deleted record (during a reconciliation scan):
+
+> **Nota:** El término "ENTRY_CREATE" se usa aquí como concepto lógico. El Agent no utiliza WatchService; detecta
+> archivos mediante escaneos periódicos con `walkFileTree` y un `SimpleFileVisitor`.
 
 ```
 POST /api/sources { path: /a.pdf, contentHash: H, ... }
@@ -89,7 +94,7 @@ POST /api/sources { path: /a.pdf, contentHash: H, ... }
 Reactivation requires **both** path and hash to match. This prevents inheriting metadata from a
 different file that happens to use the same path.
 
-#### 3. Rename Metadata Transfer (ADR 0001 interaction)
+#### 3. Rename Metadata Transfer (content-hash rename interaction)
 
 When a rename is detected (same hash, different path):
 
@@ -127,17 +132,17 @@ Users can, however:
 
 - **View soft-deleted sources** via `?includeDeleted=true` query parameter.
 - **Purge** soft-deleted sources permanently.
-- **Restore** a soft-deleted source if the file has reappeared (automatic via CREATE reactivation).
+- **Reactivation** happens automatically when the file reappears in the FS with the same content hash (automatic via
+  reconciliation).
 
 ### REST API Changes
 
-| Endpoint                          | Change                                                                                                                                                               |
-|-----------------------------------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `GET /api/sources`                | Add query param `?includeDeleted=false` — when true, includes soft-deleted sources.                                                                                  |
-| `GET /api/sources/{id}`           | Uses numeric surrogate ID instead of path-based URL.                                                                                                                 |
-| `PATCH /api/sources/{id}`         | Uses numeric surrogate ID instead of path-based URL.                                                                                                                 |
-| `DELETE /api/sources/{id}`        | Uses numeric ID. **Purge-only**: returns 409 if source is active.                                                                                                    |
-| `PATCH /api/sources/{id}/restore` | New — restores a soft-deleted source (sets `deleted_at = NULL`) if the user explicitly wants to keep it without the file being present. Useful for manual inventory. |
+| Endpoint                   | Change                                                                              |
+|----------------------------|-------------------------------------------------------------------------------------|
+| `GET /api/sources`         | Add query param `?includeDeleted=false` — when true, includes soft-deleted sources. |
+| `GET /api/sources/{id}`    | Uses UUID surrogate ID instead of path-based URL.                                   |
+| `PATCH /api/sources/{id}`  | Uses UUID surrogate ID instead of path-based URL.                                   |
+| `DELETE /api/sources/{id}` | Uses UUID. **Purge-only**: returns 409 if source is active.                         |
 
 ### Flyway Migration
 
@@ -146,23 +151,23 @@ Users can, however:
 
 -- 1. Add surrogate ID and deleted_at to sources
 ALTER TABLE sources
-  ADD COLUMN id BIGSERIAL FIRST,
+    ADD COLUMN id UUID DEFAULT gen_random_uuid() FIRST,
     ADD COLUMN deleted_at TIMESTAMP NULL;
 
 -- 2. Add partial unique index on active paths
 CREATE UNIQUE INDEX idx_sources_active_path
-  ON sources (path) WHERE deleted_at IS NULL;
+    ON sources (path) WHERE deleted_at IS NULL;
 
 -- 3. Migrate source_tags to use source_id
 ALTER TABLE source_tags
-  ADD COLUMN source_id BIGINT;
+    ADD COLUMN source_id UUID;
 
 UPDATE source_tags st
 SET source_id = s.id FROM sources s
 WHERE st.source_path = s.path;
 
 ALTER TABLE source_tags
-  ALTER COLUMN source_id SET NOT NULL;
+    ALTER COLUMN source_id SET NOT NULL;
 
 -- 4. Drop old FK and PK on source_tags
 ALTER TABLE source_tags
@@ -175,7 +180,7 @@ COLUMN source_path;
 
 -- 5. Add new FK and PK on source_tags
 ALTER TABLE source_tags
-  ADD PRIMARY KEY (source_id, tag_id),
+    ADD PRIMARY KEY (source_id, tag_id),
     ADD FOREIGN KEY (source_id) REFERENCES sources(id) ON
 DELETE
 CASCADE;
@@ -183,7 +188,7 @@ CASCADE;
 -- 6. Make path non-null (it was the PK, so it already is)
 --    Drop the old PK constraint on sources
 ALTER TABLE sources
-  DROP CONSTRAINT sources_pkey CASCADE;
+    DROP CONSTRAINT sources_pkey CASCADE;
 ```
 
 ## Consequences
@@ -195,7 +200,7 @@ ALTER TABLE sources
 - **Purge** gives the user explicit control over permanent removal.
 - **Surrogate ID** eliminates URL encoding issues, path conflicts on soft-deleted records, and
   simplifies REST API design.
-- **Consistent with ADR 0001** — rename detection via content_hash remains unchanged; only the
+- **Consistent with content-hash rename detection** — rename detection via content_hash remains unchanged; only the
   final step switches from physical DELETE to soft DELETE + metadata clearing.
 
 ### Negative
@@ -206,7 +211,7 @@ ALTER TABLE sources
   scope (thousands of records is negligible).
 - **Migration complexity** — changing PK from `path` to `id` requires a multi-step Flyway
   migration with data backfill.
-- **REST API uses `{id}` instead of `{path}`** — endpoints are designed with numeric IDs from the
+- **REST API uses `{id}` instead of `{path}`** — endpoints are designed with UUIDs from the
   start, avoiding the encoding and stability issues of path-based URLs.
 
 ### Limitations
@@ -233,7 +238,7 @@ copying data back. Increased complexity.
 
 Keep `path` as the natural PK. When a file is deleted, set `deleted_at`. When a new file needs
 the same path, fail on PK conflict.
-**Rejected**: Rename detection (ADR 0001) may need to create a record at a path that has a
+**Rejected**: Rename detection may need to create a record at a path that has a
 soft-deleted record. Surrogate ID avoids this entirely.
 
 ### Alternative 3: Physical Delete (no history)
@@ -244,10 +249,8 @@ unacceptable for the stated purpose.
 
 ## References
 
-- ADR 0001 — Content Hash + Hybrid WatchService/Scan (rename detection)
-- System SDD §4.2 — Data model (sources table)
-- System SDD §5.2 — File Deletion flow
-- System SDD §5.4 — Full Scan & Reconciliation flow
-- System SDD §7.1 — Physical Delete vs Soft Delete
-- API SDD §3.1.x — REST endpoints
-- API SDD §10.5 — DB-Based Rename Detection
+- `../architecture.md` §6.1 — Full Scan & Reconciliation flow
+- `../architecture.md` §6.1.3 — File Deletion flow (soft delete)
+- `../api.md` §4.2 — Entity model (sources table)
+- `../api.md` §2.1 — REST endpoints (Sources)
+- Moved from `ADR-0002` to `ADR-0001` on 2026-07-08 — sole ADR in the repo, renumbered for consistency

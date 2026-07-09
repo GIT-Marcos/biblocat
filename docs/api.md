@@ -1,4 +1,4 @@
-# newApiDoc
+# api
 
 ## 1. Stack detallado de tecnologías y dependencias
 
@@ -220,7 +220,7 @@ Procesa un batch de operaciones enviadas por el Agent. Idempotente: operaciones 
     {
       "type": "REACTIVATE",
       "sourceId": "550e8400-e29b-41d4-a716-446655440004",
-      "path": "reactivado.pdf",
+      "path": "Gabriel García Márquez/reactivado.pdf",
       "contentHash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
     }
   ]
@@ -655,9 +655,9 @@ es un mecanismo de comunicación persistente.
 Convención de nombres: `V` + 4 dígitos + `__` + descripción en snake_case (ej: `V0001__initial_schema.sql`).
 Solo migraciones versionadas (no repeatable). Nuevas columnas siempre nullable o con default (additive-only).
 
-| Archivo                     | Descripción                                                                                                                                                                                                                              |
-|-----------------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| `V0001__initial_schema.sql` | Crea el tipo ENUM `file_format`, las tablas `authors`, `sources`, `tags`, `source_tags` y `reconciliation` con sus columnas, constraints, FKs, índices, y el seed row de `reconciliation` con ID `00000000-0000-0000-0000-000000000001`. |
+| Archivo                     | Descripción                                                                                                                                                                                             |
+|-----------------------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `V0001__initial_schema.sql` | Crea el tipo ENUM `file_format`, las tablas `authors`, `sources`, `tags`, `source_tags` y `reconciliation` con sus columnas, constraints, FKs, índices, y el seed row de `reconciliation` con `id = 1`. |
 
 ## 6. Excepciones
 

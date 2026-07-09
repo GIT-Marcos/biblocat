@@ -1,4 +1,4 @@
-# newFrontDoc
+# front
 
 ## 1. Stack detallado de tecnologías y dependencias
 

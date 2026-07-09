@@ -1,4 +1,4 @@
-# newDoc
+# architecture
 
 ## 0. Explicación de la organización de la documentación
 
@@ -6,15 +6,16 @@ La documentación de BiblioCat se compone de cuatro documentos principales más 
 Arquitectónica (ADR). Cada documento cubre un nivel distinto del sistema, desde lo global hasta lo específico de cada
 módulo.
 
-| Documento     | Propósito                                                          |
-|---------------|--------------------------------------------------------------------|
-| `newDoc`      | Arquitectura global, principios, flujos del sistema, stack general |
-| `newApiDoc`   | API REST, modelo de datos, base de datos, migraciones, excepciones |
-| `newAgentDoc` | Monitoreo del filesystem, sincronización, ciclo de vida del agente |
-| `newFrontDoc` | Componentes de UI, rutas, páginas, configuración del frontend      |
-| `Issue*`      | Problemas funcionales detectados, con severidad y estado           | `docs/issues/` |
+| Documento      | Propósito                                                                            |
+|----------------|--------------------------------------------------------------------------------------|
+| `architecture` | Arquitectura global, principios, flujos del sistema, stack general                   |
+| `api`          | API REST, modelo de datos, base de datos, migraciones, excepciones                   |
+| `agent`        | Monitoreo del filesystem, sincronización, ciclo de vida del agente                   |
+| `front`        | Componentes de UI, rutas, páginas, configuración del frontend                        |
+| `Issue*`       | Problemas funcionales detectados, con severidad y estado. Ubicados en `docs/issues/` |
 
-Las decisiones arquitectónicas documentadas (ADR) se encuentran en `docs/decisions/`. Los comandos de build, test y
+Las decisiones arquitectónicas documentadas (ADR) se encuentran en `docs/issues/decisions/`. Los comandos de build, test
+y
 desarrollo están definidos en `.opencode/commands/`.
 
 Los issues funcionales se documentan en `docs/issues/`. Cada issue indica estado (resuelto, parcial, no resuelto),
@@ -23,19 +24,19 @@ completamente resueltos se mueven a `docs/issues/resolved/`.
 
 ### 0.1. Scope por documento
 
-#### newDoc (documento global)
+#### architecture (documento global)
 
 | Cubre                                       | No cubre                                       |
 |---------------------------------------------|------------------------------------------------|
 | Organización de la documentación            | Detalle de endpoints REST                      |
 | Introducción y objetivo del sistema         | Especificación de modelos de datos             |
 | Glosario de términos                        | Migraciones de base de datos                   |
-| Capacidades y límites del usuario           | Implementación del agente (WatchService, etc.) |
+| Capacidades y límites del usuario           | Implementación del agente (walkFileTree, etc.) |
 | División en módulos y sus responsabilidades | Componentes de UI y páginas                    |
 | Stack tecnológico general                   | Configuración específica de cada módulo        |
 | Flujos del sistema (creación, eliminación)  | Guía de usuario o tutorial                     |
 
-#### newApiDoc (API)
+#### api (API)
 
 | Cubre                                               | No cubre                        |
 |-----------------------------------------------------|---------------------------------|
@@ -48,7 +49,7 @@ completamente resueltos se mueven a `docs/issues/resolved/`.
 | Perfiles de configuración YAML                      |                                 |
 | Estrategia de testing                               |                                 |
 
-#### newAgentDoc (agente)
+#### agent (agente)
 
 | Cubre                                          | No cubre                        |
 |------------------------------------------------|---------------------------------|
@@ -56,11 +57,11 @@ completamente resueltos se mueven a `docs/issues/resolved/`.
 | Diagrama de componentes internos               | Modelo de datos y entidades     |
 | Sincronización entre FS y base de datos        | Migraciones de base de datos    |
 | Ciclo de vida (inicio, cierre, eventos)        | UI y componentes frontend       |
-| Procesos del agente (WatchService, hash, etc.) | Arquitectura global del sistema |
+| Procesos del agente (walkFileTree, hash, etc.) | Arquitectura global del sistema |
 | Configuraciones y propiedades                  |                                 |
 | Estrategia de testing                          |                                 |
 
-#### newFrontDoc (frontend)
+#### front (frontend)
 
 | Cubre                                      | No cubre                             |
 |--------------------------------------------|--------------------------------------|
@@ -97,22 +98,22 @@ BiblioCat **no** es:
 
 ## 2. Glosario
 
-| Término         | Definición                                                                                                                                                                                                      | Módulo          |
-|-----------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|-----------------|
-| Source          | Archivo PDF, EPUB o MHTML descubierto en el directorio de biblioteca y representado como registro en la base de datos.                                                                                          | API             |
-| Agent           | Daemon Java que sincroniza el catálogo con el filesystem mediante escaneos programados (inicio, periódico, manual) y comunica cambios a la API vía HTTP.                                                        | Agent           |
-| API             | Aplicación Spring Boot que expone endpoints REST, gestiona persistencia con JPA y ejecuta migraciones Flyway.                                                                                                   | API             |
-| Frontend        | Aplicación React que provee la interfaz de usuario para navegar y gestionar el catálogo.                                                                                                                        | Front           |
-| Reconciliation  | Proceso de sincronización entre el estado actual del filesystem y los registros en la base de datos.                                                                                                            | Agent + API     |
-| Filesystem (FS) | Directorio local que contiene los archivos de biblioteca. Es la fuente de verdad del sistema.                                                                                                                   | Agent           |
-| Source format   | Discriminante de tipo de archivo: PDF, EPUB o MHTML.                                                                                                                                                            | API             |
-| Tag             | Etiqueta asignada por el usuario para categorizar sources. Relación muchos a muchos con sources.                                                                                                                | API + Front     |
-| Write-race      | Condición de carrera donde el Agent intenta leer/hashear un archivo mientras este está siendo escrito por otro proceso. El Agent debe detectar y reintentar (backoff) para evitar hashes parciales o corruptos. | Agent           |
-| Soft delete     | Marcado de un registro como eliminado (se establece `deleted_at`) sin borrarlo físicamente. Los metadatos se preservan.                                                                                         | API             |
-| Content hash    | Hash SHA-256 del contenido del archivo. Usado para detectar renombres y safe-save.                                                                                                                              | Agent + API     |
-| Orphan source   | Source cuyo archivo fue eliminado del FS pero cuyo registro de metadatos persiste en la base de datos (soft-delete). Puede ser reactivada si el archivo reaparece.                                              | API             |
-| Metadata        | Información asociada a un source en la base de datos: nombre, path, formato, año, edición, URL, autor, tags, content hash y timestamps. Se preserva durante el soft-delete y se transfiere en caso de rename.   | API             |
-| ADR             | Architecture Decision Record. Documento que registra una decisión arquitectónica, su contexto y consecuencias.                                                                                                  | docs/decisions/ |
+| Término         | Definición                                                                                                                                                                                                      | Módulo                 |
+|-----------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|------------------------|
+| Source          | Archivo PDF, EPUB o MHTML descubierto en el directorio de biblioteca y representado como registro en la base de datos.                                                                                          | API                    |
+| Agent           | Daemon Java que sincroniza el catálogo con el filesystem mediante escaneos programados (inicio, periódico, manual) y comunica cambios a la API vía HTTP.                                                        | Agent                  |
+| API             | Aplicación Spring Boot que expone endpoints REST, gestiona persistencia con JPA y ejecuta migraciones Flyway.                                                                                                   | API                    |
+| Frontend        | Aplicación React que provee la interfaz de usuario para navegar y gestionar el catálogo.                                                                                                                        | Front                  |
+| Reconciliation  | Proceso de sincronización entre el estado actual del filesystem y los registros en la base de datos.                                                                                                            | Agent + API            |
+| Filesystem (FS) | Directorio local que contiene los archivos de biblioteca. Es la fuente de verdad del sistema.                                                                                                                   | Agent                  |
+| Source format   | Discriminante de tipo de archivo: PDF, EPUB o MHTML.                                                                                                                                                            | API                    |
+| Tag             | Etiqueta asignada por el usuario para categorizar sources. Relación muchos a muchos con sources.                                                                                                                | API + Front            |
+| Write-race      | Condición de carrera donde el Agent intenta leer/hashear un archivo mientras este está siendo escrito por otro proceso. El Agent debe detectar y reintentar (backoff) para evitar hashes parciales o corruptos. | Agent                  |
+| Soft delete     | Marcado de un registro como eliminado (se establece `deleted_at`) sin borrarlo físicamente. Los metadatos se preservan.                                                                                         | API                    |
+| Content hash    | Hash SHA-256 del contenido del archivo. Usado para detectar renombres y safe-save.                                                                                                                              | Agent + API            |
+| Orphan source   | Source cuyo archivo fue eliminado del FS pero cuyo registro de metadatos persiste en la base de datos (soft-delete). Puede ser reactivada si el archivo reaparece.                                              | API                    |
+| Metadata        | Información asociada a un source en la base de datos: nombre, path, formato, año, edición, URL, autor, tags, content hash y timestamps. Se preserva durante el soft-delete y se transfiere en caso de rename.   | API                    |
+| ADR             | Architecture Decision Record. Documento que registra una decisión arquitectónica, su contexto y consecuencias.                                                                                                  | docs/issues/decisions/ |
 
 ## 3. Qué puede hacer el usuario y qué no
 
@@ -211,7 +212,7 @@ La división responde a cuatro principios de arquitectura:
 
 | Módulo            | No hace                                                                                                                                          |
 |-------------------|--------------------------------------------------------------------------------------------------------------------------------------------------|
-| **API**           | No accede al filesystem. No ejecuta WatchService. No contiene lógica de sincronización local.                                                    |
+| **API**           | No accede al filesystem. No ejecuta monitoreo del filesystem. No contiene lógica de sincronización local.                                        |
 | **Agent**         | No accede a la base de datos. No contiene lógica de dominio. No expone interfaz de usuario. No descarga, convierte ni modifica archivos.         |
 | **Frontend**      | No contiene lógica de negocio. No accede al filesystem. No se comunica directamente con el Agent. Toda comunicación es vía HTTP REST con la API. |
 | **Base de datos** | No es un proyecto independiente. No contiene lógica de aplicación (triggers, funciones). No se accede directamente desde el Agent o el Frontend. |
@@ -265,9 +266,9 @@ graph LR
 
 ### 5.2. Links a los stacks detallados de cada módulo
 
-- API → [`newApiDoc.md`](newApiDoc.md) §1
-- Agent → [`newAgentDoc.md`](newAgentDoc.md) §1
-- Frontend → [`newFrontDoc.md`](newFrontDoc.md) §1
+- API → [`api.md`](api.md) §1
+- Agent → [`agent.md`](agent.md) §1
+- Frontend → [`front.md`](front.md) §1
 
 ## 6. Comportamientos y flujos de datos
 
@@ -281,9 +282,11 @@ Los cuatro flujos que siguen (creación, rename, eliminación y reactivación) n
 mediante un **único proceso de reconciliación** que el Agent ejecuta en cada escaneo. Las fases del proceso son:
 
 1. **Consultar** — el Agent solicita a la API el estado conocido de todos los sources (`GET /api/sources/paths`).
-2. **Escanear y clasificar** — el Agent recorre el FS con `Files.walk()`, lista los archivos y clasifica cada uno contra
+2. **Escanear y clasificar** — el Agent recorre el FS con `Files.walkFileTree()` + `SimpleFileVisitor`, lista los
+   archivos y clasifica cada uno contra
    el estado conocido.
-3. **Hashear** — computa SHA-256 para cada archivo. No hay optimización activa (ver `docs/Optimization01.md` para
+3. **Hashear** — computa SHA-256 para cada archivo. No hay optimización activa (ver
+   `docs/issues/ISSUE-04-OmitirHashEscaneosSubsecuentes.md` para
    estrategias futuras).
 4. **Enviar** — agrupa las operaciones en batches y las envía a la API (`POST /api/sources/reconcile`).
 5. **Persistir** — la API aplica cada operación según su tipo.
@@ -343,11 +346,12 @@ Cada sub-sección detalla el trigger, los pasos y las notas particulares de cada
 **Notas:**
 
 - La detección de rename requiere consultar tanto por path como por content hash.
-- Si el rename cambia la carpeta padre, la API actualiza el autor automáticamente.
+- Si el rename cambia la carpeta padre, el Agent re-infere el autor del nuevo path y lo envía en la operación RENAME; la
+  API solo persiste el valor recibido.
 - El safe-save se detecta porque el contenido fue reemplazado en el mismo path (hash distinto).
 - Los metadatos editables por el usuario se preservan durante el rename.
-- El autor se re-infere del nuevo path automáticamente por la API siguiendo las reglas de inferencia de autor (ver §3.7
-  de newAgentDoc.md).
+- El autor se re-infere del nuevo path automáticamente por el Agent (quien lo envía en la operación RENAME). La API solo
+  persiste el valor recibido. Ver reglas de inferencia en `agent.md` §2.7.
 
 #### 6.1.3. Eliminación de source (soft-delete)
 
@@ -394,7 +398,7 @@ Flujos iniciados por acciones del usuario desde el frontend.
 
 #### 6.2.1. Editar metadatos (Pendiente)
 
-**Trigger:** Usuario modifica año, edición, URL o autor de un source.
+**Trigger:** Usuario modifica año, edición o URL de un source.
 
 **Componentes involucrados:** Front → API → DB
 
@@ -462,7 +466,7 @@ sequenceDiagram
   polling.
 - Si el Agent crashea después del ack pero antes del escaneo, el flag ya se reseteó. La reconciliación se recupera en el
   próximo escaneo programado (cada 5 minutos).
-- La superposición con reconciliaciones periódicas se maneja mediante `AtomicBoolean` (ver `newAgentDoc.md` §2.8 EC34).
+- La superposición con reconciliaciones periódicas se maneja mediante `AtomicBoolean` (ver `agent.md` §2.8 EC35).
 
 ### 6.3. System-triggered
 
@@ -494,7 +498,7 @@ sequenceDiagram
     Note over Recon: AtomicBoolean.compareAndSet(false, true)
     Recon ->> API: GET /api/sources/paths
     API -->> Recon: 200 [sources...]
-    Recon ->> Recon: Files.walk + classify + hash + batch
+    Recon ->> Recon: Files.walkFileTree + classify + hash + batch
     Recon ->> API: POST /api/sources/reconcile
     API ->> DB: Persistir cambios
     API -->> Recon: 200 {processed: N}
@@ -503,27 +507,38 @@ sequenceDiagram
 
 **Enumeración de pasos:**
 
-1. `Agent.main()` carga la configuración desde propiedades (o CLI args). Valida que el directorio raíz exista y sea un directorio. Resuelve symlinks con `rootDir.toRealPath()`.
+1. `Agent.main()` carga la configuración desde propiedades (o CLI args). Valida que el directorio raíz exista y sea un
+   directorio. Resuelve symlinks con `rootDir.toRealPath()`.
 2. Registra un ShutdownHook en la JVM para interrupción graceful de los executors.
-3. Crea el **Scheduler** (`ScheduledExecutorService`, 1 hilo) con `scheduleWithFixedDelay(task, delay=0, period=scan.period-seconds)`. El `delay=0` fuerza un full scan inmediato al arrancar.
-4. Crea el **Poller** (`ScheduledExecutorService`, 1 hilo) con `scheduleWithFixedDelay(task, delay=0, period=poll.interval-seconds)`. Comienza a sondear reconciliaciones manuales inmediatamente.
-5. **Race en t=0:** Scheduler y Poller arrancan simultáneamente y compiten por el `AtomicBoolean` (`compareAndSet(false, true)`). El primero que lo adquiere ejecuta la reconciliación de inicio. El otro loguea DEBUG y omite su ejecución.
+3. Crea el **Scheduler** (`ScheduledExecutorService`, 1 hilo) con
+   `scheduleWithFixedDelay(task, delay=0, period=scan.period-seconds)`. El `delay=0` fuerza un full scan inmediato al
+   arrancar.
+4. Crea el **Poller** (`ScheduledExecutorService`, 1 hilo) con
+   `scheduleWithFixedDelay(task, delay=0, period=poll.interval-seconds)`. Comienza a sondear reconciliaciones manuales
+   inmediatamente.
+5. **Race en t=0:** Scheduler y Poller arrancan simultáneamente y compiten por el `AtomicBoolean` (
+   `compareAndSet(false, true)`). El primero que lo adquiere ejecuta la reconciliación de inicio. El otro loguea DEBUG y
+   omite su ejecución.
 6. La reconciliación ejecuta el pipeline completo descrito en §6.1:
-   - Consulta el estado conocido (`GET /api/sources/paths`) con reintentos configurables.
-   - Recorre el FS (`Files.walk`), filtra por extensión (`.pdf`, `.epub`, `.mhtml`).
-   - Clasifica cada archivo contra el estado conocido (tabla de §6.1, casos A-H).
-   - Computa SHA-256 para los archivos que lo requieren.
-   - Agrupa operaciones en batches (default: 50) ordenados: RENAME → UPDATE → REACTIVATE → CREATE → DELETE.
-   - Envía cada batch a la API (`POST /api/sources/reconcile`) con reintentos y backoff.
+    - Consulta el estado conocido (`GET /api/sources/paths`) con reintentos configurables.
+    - Recorre el FS (`Files.walkFileTree` + `SimpleFileVisitor`), filtra por extensión (`.pdf`, `.epub`, `.mhtml`).
+    - Clasifica cada archivo contra el estado conocido (tabla de §6.1, casos A-H).
+    - Computa SHA-256 para los archivos que lo requieren.
+    - Agrupa operaciones en batches (default: 50) ordenados: RENAME → UPDATE → REACTIVATE → CREATE → DELETE.
+    - Envía cada batch a la API (`POST /api/sources/reconcile`) con reintentos y backoff.
 7. La API persiste los cambios en la base de datos.
 8. Al finalizar (éxito o error), libera el `AtomicBoolean` en un bloque `finally`.
 
 **Notas:**
 
-- El Scheduler usa `delay = 0` para garantizar que el catálogo se sincronice inmediatamente al arrancar el Agent, sin esperar al primer intervalo periódico.
-- La race condition en `t=0` entre Scheduler y Poller es **correcta por diseño**: cualquiera de los dos puede ejecutar el primer escaneo. El perdedor lo reintenta en su próximo ciclo.
-- El ShutdownHook se registra **antes** de arrancar los executors para asegurar que captura cualquier interrupción, incluso si ocurre durante el bootstrap.
-- Si el root-dir no existe al iniciar, el Agent aborta con código de salida ≠ 0 y no arranca los executors. Requiere intervención del usuario.
+- El Scheduler usa `delay = 0` para garantizar que el catálogo se sincronice inmediatamente al arrancar el Agent, sin
+  esperar al primer intervalo periódico.
+- La race condition en `t=0` entre Scheduler y Poller es **correcta por diseño**: cualquiera de los dos puede ejecutar
+  el primer escaneo. El perdedor lo reintenta en su próximo ciclo.
+- El ShutdownHook se registra **antes** de arrancar los executors para asegurar que captura cualquier interrupción,
+  incluso si ocurre durante el bootstrap.
+- Si el root-dir no existe al iniciar, el Agent aborta con código de salida ≠ 0 y no arranca los executors. Requiere
+  intervención del usuario.
 
 #### 6.3.2. Reconciliación periódica
 
@@ -543,7 +558,7 @@ sequenceDiagram
     alt lock adquirido
         Agent ->> API: GET /api/sources/paths
         API -->> Agent: 200 [sources...]
-        Agent ->> Agent: Files.walk root-dir
+        Agent ->> Agent: Files.walkFileTree root-dir
         Agent ->> Agent: Clasificar (casos A-H)
         Agent ->> Agent: Hash SHA-256 (si aplica)
         Agent ->> Agent: Agrupar en batches
@@ -558,23 +573,34 @@ sequenceDiagram
 
 **Enumeración de pasos:**
 
-1. El `ScheduledExecutorService` dispara la reconciliación periódica tras el intervalo configurado, medido desde el fin del escaneo anterior (`scheduleWithFixedDelay`).
+1. El `ScheduledExecutorService` dispara la reconciliación periódica tras el intervalo configurado, medido desde el fin
+   del escaneo anterior (`scheduleWithFixedDelay`).
 2. El Agent intenta adquirir el `AtomicBoolean.reconciliationInProgress` con `compareAndSet(false, true)`.
-   - Si retorna `false` → hay otra reconciliación en curso (manual o periódica superpuesta) → log DEBUG, omitir. El próximo ciclo lo reintenta.
-   - Si retorna `true` → lock adquirido, continuar.
+    - Si retorna `false` → hay otra reconciliación en curso (manual o periódica superpuesta) → log DEBUG, omitir. El
+      próximo ciclo lo reintenta.
+    - Si retorna `true` → lock adquirido, continuar.
 3. El Agent ejecuta el pipeline completo de reconciliación (idéntico al de §6.1):
-   - Consulta `GET /api/sources/paths` con reintentos (default: 3, backoff 2s/4s/8s). Si se agotan, aborta la reconciliación y libera el lock.
-   - Recorre el FS con `Files.walk(rootDir, maxDepth)`. Filtra por extensión (`.pdf`, `.epub`, `.mhtml`). Normaliza paths.
-   - Clasifica cada archivo contra el estado conocido aplicando la tabla de §6.1.
-   - Computa SHA-256 para los casos que lo requieren (B, C, D, E, H) con timeout y detección de write-race.
-   - Agrupa operaciones en batches de hasta `batch.size` (default: 50), ordenados: RENAME → UPDATE → REACTIVATE → CREATE → DELETE.
-   - Envía cada batch secuencialmente a `POST /api/sources/reconcile`.
+    - Consulta `GET /api/sources/paths` con reintentos (default: 3, backoff 2s/4s/8s). Si se agotan, aborta la
+      reconciliación y libera el lock.
+    - Recorre el FS con `Files.walkFileTree(rootDir, options, maxDepth, visitor)` + `SimpleFileVisitor`. Filtra por
+      extensión (`.pdf`, `.epub`, `.mhtml`). Normaliza
+      paths.
+    - Clasifica cada archivo contra el estado conocido aplicando la tabla de §6.1.
+    - Computa SHA-256 para los casos que lo requieren (B, C, D, E, H) con timeout y detección de write-race.
+    - Agrupa operaciones en batches de hasta `batch.size` (default: 50), ordenados: RENAME → UPDATE → REACTIVATE →
+      CREATE → DELETE.
+    - Envía cada batch secuencialmente a `POST /api/sources/reconcile`.
 4. La API persiste los cambios en la base de datos y responde con el resumen de operaciones procesadas.
 5. Al finalizar (éxito o error), libera el `AtomicBoolean` en un bloque `finally`.
 
 **Notas:**
 
-- El uso de `scheduleWithFixedDelay` (no `scheduleAtFixedRate`) garantiza que el intervalo se mide desde el **fin** de una ejecución hasta el **inicio** de la siguiente. Si el escaneo tarda más que el período configurado, la siguiente ejecución espera a que termine + el delay. No se saltan reconciliaciones.
-- El `AtomicBoolean` es una salvaguarda secundaria: `scheduleWithFixedDelay` ya impide la auto-superposición del Scheduler, pero el lock protege contra superposición con reconciliaciones manuales disparadas por el Poller (§6.2.3).
-- La primera reconciliación periódica no ocurre hasta 300s después del full scan de inicio (§6.3.1). Esto evita dos escaneos consecutivos al arrancar.
-- Configuraciones relevantes: `biblocat.agent.scan.period-seconds` (default: 300), `biblocat.agent.scan.max-depth` (default: 10), `biblocat.agent.batch.size` (default: 50). Ver `newAgentDoc.md` §4.1 para la lista completa.
+- El uso de `scheduleWithFixedDelay` (no `scheduleAtFixedRate`) garantiza que el intervalo se mide desde el **fin** de
+  una ejecución hasta el **inicio** de la siguiente. Si el escaneo tarda más que el período configurado, la siguiente
+  ejecución espera a que termine + el delay. No se saltan reconciliaciones.
+- El `AtomicBoolean` es una salvaguarda secundaria: `scheduleWithFixedDelay` ya impide la auto-superposición del
+  Scheduler, pero el lock protege contra superposición con reconciliaciones manuales disparadas por el Poller (§6.2.3).
+- La primera reconciliación periódica no ocurre hasta 300s después del full scan de inicio (§6.3.1). Esto evita dos
+  escaneos consecutivos al arrancar.
+- Configuraciones relevantes: `biblocat.agent.scan.period-seconds` (default: 300), `biblocat.agent.scan.max-depth` (
+  default: 10), `biblocat.agent.batch.size` (default: 50). Ver `agent.md` §4.1 para la lista completa.

@@ -2,8 +2,12 @@
 
 **Estado: ✅ Resuelto (doc)**
 **Severidad: 🟥 3**
+**Tipo:** 🏛️ Decisión
 
-**Nota:** DELETE por `sourceId` (tabla §2.9), orden RENAME→DELETE (EC39), filtro `Set<sourceId>` global (EC38), y RENAME de soft-deleteado (EC40).
+**Nota:** DELETE por `sourceId` (tabla §2.9), orden RENAME→DELETE (EC40), filtro `Set<sourceId>` global (EC39), y RENAME
+de soft-deleteado (EC25).
+
+**Decisión:** `docs/agent.md §2.8.D` (EC25), `docs/agent.md §2.8.F` (EC39, EC40), `docs/agent.md §2.9`
 
 ## Contexto
 
@@ -80,14 +84,17 @@ simple. Son complementarias y de bajo costo de implementación.
 Se implementaron las opciones 1 y 2 de las propuestas:
 
 - DELETE por `sourceId` (tabla `§2.9`: `sourceId: ✓`, `path: opcional`).
-- El Agent emite RENAME antes que DELETE (EC39).
-- El Agent mantiene un `Set<sourceId>` global para filtrar DELETEs de sources renombrados (EC38).
-- RENAME sobre source soft-deleteado lo reactiva (EC40).
-
-Referencias: `newAgentDoc.md §2.8.F` (EC38, EC39, EC40), `newAgentDoc.md §2.9` (tabla campos requeridos).
+- El Agent emite RENAME antes que DELETE (EC40).
+- El Agent mantiene un `Set<sourceId>` global para filtrar DELETEs de sources renombrados (EC39).
+- RENAME sobre source soft-deleteado lo reactiva (EC25).
 
 ## Impacto
 
 - Contrato de POST /reconcile: campo `sourceId` pasa de opcional a requerido en DELETE.
 - Lógica del Agent: al clasificar, emitir primero los RENAME, luego los DELETE.
 - Lógica de la API: procesar en orden de llegada; DELETE busca por sourceId.
+
+## Referencias
+
+- `docs/agent.md §2.8.D` (EC25), `docs/agent.md §2.8.F` (EC39, EC40) — decisiones adoptadas
+- `docs/agent.md §2.9` — tabla de campos requeridos del contrato

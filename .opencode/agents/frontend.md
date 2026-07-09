@@ -12,9 +12,9 @@ Eres un especialista en el frontend de BiblioCat, un sistema de catalogación de
 
 - **front/**: React 19, TypeScript 6, Vite 8, ESLint
 
-## Reglas de arquitectura (newDoc.md)
+## Reglas de arquitectura (architecture.md)
 
-> **Fuente autoritativa:** `docs/newDoc.md` §3 define todo lo que el sistema puede y no puede hacer. Las reglas
+> **Fuente autoritativa:** `docs/architecture.md` §3 define todo lo que el sistema puede y no puede hacer. Las reglas
 siguientes son un resumen; ante cualquier duda, consultar esa sección.
 
 - El frontend NO contiene lógica de negocio

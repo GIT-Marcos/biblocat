@@ -2,8 +2,11 @@
 
 **Estado: 🟡 Parcialmente resuelto (doc)**
 **Severidad: 🟧 2**
+**Tipo:** 🏛️ Decisión
 
-**Nota:** Opción B documentada en EC31 (§2.8.F), pero no reflejada en el contrato de `POST /sources/reconcile` (§2.9).
+**Nota:** Opción B documentada en EC32 (§2.8.F), pero no reflejada en el contrato de `POST /sources/reconcile` (§2.9).
+
+**Decisión:** `agent.md §2.8.F` (EC32)
 
 ## Contexto
 
@@ -89,16 +92,19 @@ separados (DELETE en escaneo anterior, CREATE ahora). Opción C (detección intr
 
 Se adoptó la **Opción B**: la API transfiere metadatos por `contentHash` en CREATE.
 
-- Al recibir un CREATE, la API busca en sources soft-deleteados con el mismo hash (EC31).
+- Al recibir un CREATE, la API busca en sources soft-deleteados con el mismo hash (EC32).
 - Si hay exactamente 1: transfiere metadatos y purga el orphan.
 - Si hay 0 o >1: no transfiere.
 
-**Pendiente:** documentar este comportamiento en el contrato de `POST /sources/reconcile` (`newAgentDoc.md §2.9`).
-
-Referencias: `newAgentDoc.md §2.8.F` (EC31), `docs/issues/IssueSafeSaveCrossFS.md`.
+**Pendiente:** documentar este comportamiento en el contrato de `POST /sources/reconcile` (`agent.md §2.9`).
 
 ## Impacto
 
 - API: lógica adicional en SourceService.create() y en el procesador de batch.
 - Agent: sin cambios (no necesita saber si la API hará la transferencia).
 - Contrato: sin cambios (todo es interno de la API).
+
+## Referencias
+
+- `docs/agent.md §2.8.F` (EC32) — decisión adoptada
+- `docs/agent.md §2.9` — contrato pendiente de actualizar

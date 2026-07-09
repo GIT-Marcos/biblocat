@@ -2,6 +2,7 @@
 
 **Estado: ❌ No resuelto**
 **Severidad: 🟩 1**
+**Tipo:** 🏛️ Decisión
 
 **Nota:** Pendiente de decidir entre NIO puro (sin `\\?\`) o soporte con APIs legacy. Diseño bifurcado en EC5.
 
@@ -44,14 +45,14 @@ Incorrecto: \\?\ \\server\share\biblioteca
 Correcto:   \\?\UNC\server\share\biblioteca
 ```
 
-### 4. `Files.walk()` con paths largos en Java 21
+### 4. `Files.walkFileTree()` con paths largos en Java 21
 
 Java NIO soporta paths de más de 260 caracteres desde Java 8 update 101 sin necesidad de `\\?\` cuando se usa
 exclusivamente NIO (`Path`, `Files`, etc.). El prefijo es necesario solo cuando se mezcla NIO con APIs legacy.
 
 **Pregunta clave:** ¿El Agent usa alguna API legacy de Windows que requiera `\\?\`, o usa exclusivamente NIO?
 
-Si usa solo NIO (`Files.walk()`, `Files.size()`, `DigestInputStream` sobre `FileChannel`), el prefijo `\\?\` **no es
+Si usa solo NIO (`Files.walkFileTree()`, `Files.size()`, `DigestInputStream` sobre `FileChannel`), el prefijo `\\?\` **no es
 necesario** y agregarlo puede causar problemas de compatibilidad.
 
 ### 5. Construcción de paths hijos
@@ -64,7 +65,7 @@ Archivo hijo: \\?\C:\biblioteca\autor\libro.pdf
 ```
 
 Al hacer `root.resolve("autor/libro.pdf")`, Java NIO genera correctamente el path completo con el prefijo. Pero hay que
-verificar que `Files.walk()` propague correctamente el prefijo a los hijos — debe funcionar, pero necesita prueba.
+verificar que `Files.walkFileTree()` propague correctamente el prefijo a los hijos — debe funcionar, pero necesita prueba.
 
 ## Preguntas a resolver
 
@@ -84,3 +85,5 @@ verificar que `Files.walk()` propague correctamente el prefijo a los hijos — d
 
 - Si se usa NIO puro: sin cambios en implementación, solo documentación.
 - Si se necesitan APIs legacy: agregar lógica de normalización de paths y pruebas.
+
+## Referencias

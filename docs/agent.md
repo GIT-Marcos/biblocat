@@ -1,4 +1,4 @@
-# newAgentDoc
+# agent
 
 ## 1. Stack detallado de tecnologías y dependencias
 
@@ -13,15 +13,15 @@
 
 ### 1.2. APIs del JDK utilizadas
 
-| API                                             | Propósito                                                 |
-|-------------------------------------------------|-----------------------------------------------------------|
-| `java.net.http.HttpClient`                      | Comunicación HTTP con la API REST                         |
-| `java.nio.file.Files.walk()`                    | Recorrido del árbol de directorios (profundidad limitada) |
-| `java.security.MessageDigest`                   | Cómputo de hash SHA-256                                   |
-| `java.io.DigestInputStream`                     | Stream wrapper para hashear el contenido del archivo      |
-| `java.util.concurrent.ScheduledExecutorService` | Programación de reconciliaciones periódicas y polling     |
-| `java.util.concurrent.atomic.AtomicBoolean`     | Lock entre reconciliaciones superpuestas                  |
-| `java.text.Normalizer`                          | Normalización Unicode NFC de paths                        |
+| API                                                        | Propósito                                                         |
+|------------------------------------------------------------|-------------------------------------------------------------------|
+| `java.net.http.HttpClient`                                 | Comunicación HTTP con la API REST                                 |
+| `java.nio.file.Files.walkFileTree()` + `SimpleFileVisitor` | Recorrido del árbol de directorios tolerante a fallos por archivo |
+| `java.security.MessageDigest`                              | Cómputo de hash SHA-256                                           |
+| `java.io.DigestInputStream`                                | Stream wrapper para hashear el contenido del archivo              |
+| `java.util.concurrent.ScheduledExecutorService`            | Programación de reconciliaciones periódicas y polling             |
+| `java.util.concurrent.atomic.AtomicBoolean`                | Lock entre reconciliaciones superpuestas                          |
+| `java.text.Normalizer`                                     | Normalización Unicode NFC de paths                                |
 
 ### 1.3. Testing
 
@@ -64,7 +64,7 @@ conocido y recorriendo el FS desde cero.
 ```mermaid
 flowchart TD
     A[Inicio de reconciliación] --> B[GET /api/sources/paths]
-    B --> C[Files.walk del directorio raíz]
+    B --> C[Files.walkFileTree del directorio raíz]
     C --> D[Clasificar cada archivo vs estado API]
     D --> E{"¿Requiere hash?"}
     E -->|No| F[Agrupar en batch]
@@ -77,7 +77,8 @@ flowchart TD
 El proceso completo consta de 8 pasos:
 
 1. Agent solicita el estado actual de la API (`GET /api/sources/paths`).
-2. Agent recorre el directorio raíz con `Files.walk()`, respetando la profundidad máxima configurada.
+2. Agent recorre el directorio raíz con `Files.walkFileTree()` + `SimpleFileVisitor`, respetando la profundidad máxima
+   configurada.
 3. Agent filtra archivos por extensión: solo `.pdf`, `.epub`, `.mhtml`.
 4. Agent clasifica cada archivo contra el estado conocido según la tabla de clasificación (§2.5).
 5. Para los archivos que lo requieren, Agent computa SHA-256 con timeout configurable (§2.6).
@@ -112,10 +113,15 @@ se agotan, la reconciliación se aborta y no se envía ningún cambio.
 
 El Agent recorre el directorio raíz de biblioteca usando la API estándar de Java NIO.
 
-**Tecnología:** `java.nio.file.Files.walk(path, maxDepth, options)`
+**Tecnología:** `java.nio.file.Files.walkFileTree(rootDir, options, maxDepth, visitor)` con `SimpleFileVisitor<Path>`
 
 **Reglas de escaneo:**
 
+- `SimpleFileVisitor` sobrescribe `visitFileFailed(Path file, IOException exc)` para retornar
+  `FileVisitResult.CONTINUE`. Esto permite que errores por archivo (nombres reservados de Windows, permisos denegados,
+  desconexión de red) no aborten el escaneo completo — el archivo se loguea como WARN y se omite.
+- `SimpleFileVisitor` sobrescribe `preVisitDirectory(Path dir, BasicFileAttributes attrs)`. Si el directorio no es
+  legible, retorna `FileVisitResult.SKIP_SUBTREE` con log WARN.
 - Profundidad máxima configurable (default: 10 niveles).
 - No se siguen symlinks ni junctions (`FOLLOW_LINKS` no se establece).
 - Se filtran únicamente archivos con extensiones `.pdf`, `.epub`, `.mhtml` (comparación case-insensitive).
@@ -124,7 +130,7 @@ El Agent recorre el directorio raíz de biblioteca usando la API estándar de Ja
 - Archivos que desaparecen durante el escaneo se manejan como si nunca hubieran existido.
 - El directorio raíz se resuelve con `rootDir.toRealPath()` al iniciar, para eliminar dependencia de symlinks o
   junctions. El path real se usa durante toda la sesión.
-- Antes de cada walk se verifica que el directorio raíz exista. Si no existe, se aborta la reconciliación.
+- Antes de cada `walkFileTree` se verifica que el directorio raíz exista. Si no existe, se aborta la reconciliación.
 
 **Normalización de paths:**
 
@@ -159,7 +165,8 @@ decisión:
 - **Caso D (RENAME):** Si el source origen del RENAME está soft-deleteado (`deletedAt ≠ null`), la API lo reactiva
   (limpia `deletedAt`) al procesar el RENAME. Si múltiples sources tienen el mismo hash que el archivo en FS, se
   prioriza: (1) activos sobre soft-deleteados, (2) path alfabéticamente menor.
-- Para el caso **A**, el hash se computa siempre (no hay optimización activa). Ver `docs/Optimization01.md` para
+- Para el caso **A**, el hash se computa siempre (no hay optimización activa). Ver
+  `docs/issues/ISSUE-04-OmitirHashEscaneosSubsecuentes.md` para
   estrategias futuras.
 - **Caso F (DELETE):** El Agent determina el `sourceId` desde el estado conocido de `GET /paths`. Si el mismo `sourceId`
   aparece como RENAME (caso D) en el mismo escaneo, el DELETE se omite — el source fue movido, no eliminado. El Agent
@@ -183,7 +190,8 @@ decisión:
   resetea al hashear exitosamente. El contador es volátil (memoria, se pierde al reiniciar el Agent).
 
 **Optimización:** No implementada. El Agent computa SHA-256 siempre que la tabla de clasificación lo requiere. Ver
-`docs/Optimization01.md` para el diseño de una optimización futura basada en timestamps del filesystem.
+`docs/issues/ISSUE-04-OmitirHashEscaneosSubsecuentes.md` para el diseño de una optimización futura basada en timestamps
+del filesystem.
 
 ### 2.7. Inferencia de autor
 
@@ -216,23 +224,23 @@ Los edge cases se organizan por la fase del proceso de reconciliación en la que
 
 #### A. Previo al escaneo — validaciones antes de iniciar la reconciliación
 
-| # | Caso                                                    | Comportamiento                                                                                                                                                                                                                                                                                                     |
-|---|---------------------------------------------------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| 1 | Root-dir es symlink / junction                          | Resolver con `rootDir.toRealPath()` al iniciar. Log INFO con el path real. Usar el path resuelto durante toda la sesión.                                                                                                                                                                                           |
-| 2 | Root-dir no existe al iniciar                           | Validar con `Files.exists()` y `Files.isDirectory()`. Si no existe: log ERROR, abortar con código de salida ≠ 0. Esperar intervención del usuario.                                                                                                                                                                 |
-| 3 | Network drive se desconecta durante el walk             | Capturar `AccessDeniedException`. Verificar que root siga respondiendo antes de enviar soft-deletes masivos. Si root no responde: abortar reconciliación, log ERROR.                                                                                                                                               |
-| 4 | Root-dir se renombra o elimina mientras el agente corre | Antes de cada walk verificar que root exista. Si no: abortar, log ERROR, registrar health check. No reintentar automáticamente.                                                                                                                                                                                    |
-| 5 | Path excede el límite de longitud del SO                | Limitación conocida de MAX_PATH (260 chars) en Windows. Si el Agent usa exclusivamente NIO (Java 21), confiar en el soporte nativo de paths largos sin `\\?\`. Si se usan APIs legacy, prefijar con `\\?\` después de `toRealPath()`, manejando el caso UNC con `\\?\UNC\...`. Ver `docs/issues/IssueLongPath.md`. |
+| # | Caso                                                    | Comportamiento                                                                                                                                                                                                                                                                                                         |
+|---|---------------------------------------------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| 1 | Root-dir es symlink / junction                          | Resolver con `rootDir.toRealPath()` al iniciar. Log INFO con el path real. Usar el path resuelto durante toda la sesión.                                                                                                                                                                                               |
+| 2 | Root-dir no existe al iniciar                           | Validar con `Files.exists()` y `Files.isDirectory()`. Si no existe: log ERROR, abortar con código de salida ≠ 0. Esperar intervención del usuario.                                                                                                                                                                     |
+| 3 | Network drive se desconecta durante el walk             | Capturar `AccessDeniedException`. Verificar que root siga respondiendo antes de enviar soft-deletes masivos. Si root no responde: abortar reconciliación, log ERROR.                                                                                                                                                   |
+| 4 | Root-dir se renombra o elimina mientras el agente corre | Antes de cada walk verificar que root exista. Si no: abortar, log ERROR, registrar health check. No reintentar automáticamente.                                                                                                                                                                                        |
+| 5 | Path excede el límite de longitud del SO                | Limitación conocida de MAX_PATH (260 chars) en Windows. Si el Agent usa exclusivamente NIO (Java 21), confiar en el soporte nativo de paths largos sin `\\?\`. Si se usan APIs legacy, prefijar con `\\?\` después de `toRealPath()`, manejando el caso UNC con `\\?\UNC\...`. Ver `docs/issues/ISSUE-03-LongPath.md`. |
 
 #### B. Durante el escaneo del árbol
 
-| #  | Caso                                                            | Comportamiento                                                         |
-|----|-----------------------------------------------------------------|------------------------------------------------------------------------|
-| 6  | Archivos ocultos                                                | Se procesan (atributo Hidden). Log DEBUG.                              |
-| 7  | Nombres reservados de Windows (`CON`, `NUL`, `COM1`, `aux.txt`) | Capturar `IOException`. Log WARN con el nombre del archivo. Continuar. |
-| 8  | Profundidad de directorios excedida                             | Ignorar archivos más allá del límite configurado, log DEBUG.           |
-| 9  | Extensión no soportada (`.txt`, `.doc`, etc.)                   | Saltar, log DEBUG.                                                     |
-| 10 | Carpetas sin archivos compatibles                               | Ignoradas. No generan ninguna operación.                               |
+| #  | Caso                                                            | Comportamiento                                                                                                     |
+|----|-----------------------------------------------------------------|--------------------------------------------------------------------------------------------------------------------|
+| 6  | Archivos ocultos                                                | Se procesan (atributo Hidden). Log DEBUG.                                                                          |
+| 7  | Nombres reservados de Windows (`CON`, `NUL`, `COM1`, `aux.txt`) | `visitFileFailed()` en `SimpleFileVisitor` retorna `FileVisitResult.CONTINUE`. Log WARN con el nombre del archivo. |
+| 8  | Profundidad de directorios excedida                             | Ignorar archivos más allá del límite configurado, log DEBUG.                                                       |
+| 9  | Extensión no soportada (`.txt`, `.doc`, etc.)                   | Saltar, log DEBUG.                                                                                                 |
+| 10 | Carpetas sin archivos compatibles                               | Ignoradas. No generan ninguna operación.                                                                           |
 
 #### C. Durante el cómputo de hash
 
@@ -255,36 +263,36 @@ Los edge cases se organizan por la fase del proceso de reconciliación en la que
 | 20 | Hash duplicado con path diferente                         | Clasificar como RENAME.                                                                                                                                                                                                                                                                                                                                              |
 | 21 | Archivo en raíz del directorio de biblioteca              | `authorName = null`. `author_id` queda NULL en DB.                                                                                                                                                                                                                                                                                                                   |
 | 22 | Múltiples archivos con el mismo contenido (hash idéntico) | Agrupar por hash. Si hay más de un CREATE con el mismo hash, usar orden alfabético de path como tiebreaker para garantizar comportamiento determinista.                                                                                                                                                                                                              |
-| 23 | Dos archivos que difieren solo en casing                  | No aplica. Windows tiene FS case-insensitive, `Files.walk()` nunca puede encontrar dos archivos que difieran solo en casing. El índice único en `pathLower` en la DB se mantiene como restricción de integridad.                                                                                                                                                     |
+| 23 | Dos archivos que difieren solo en casing                  | No aplica. Windows tiene FS case-insensitive, `Files.walkFileTree()` nunca puede encontrar dos archivos que difieran solo en casing. El índice único en `pathLower` en la DB se mantiene como restricción de integridad.                                                                                                                                             |
 | 24 | Unicode NFC en nombres de archivo                         | Normalizar con `Normalizer.normalize(path, Normalizer.Form.NFC)` al leer del FS y al computar `pathLower`. Consistencia con la normalización NFC nativa de Windows.                                                                                                                                                                                                  |
-| 40 | RENAME con `sourceId` de un source soft-deleteado         | El Agent clasifica como RENAME si el hash coincide con un source con `deletedAt ≠ null` (caso D de §2.5). La API debe: (1) limpiar `deletedAt`, (2) actualizar `path` y `pathLower`, (3) actualizar `authorName` si cambió, (4) preservar metadatos (tags, año, URL). El RENAME sobre soft-deleteado siempre reactiva — no debe lanzar error por `deletedAt ≠ null`. |
+| 25 | RENAME con `sourceId` de un source soft-deleteado         | El Agent clasifica como RENAME si el hash coincide con un source con `deletedAt ≠ null` (caso D de §2.5). La API debe: (1) limpiar `deletedAt`, (2) actualizar `path` y `pathLower`, (3) actualizar `authorName` si cambió, (4) preservar metadatos (tags, año, URL). El RENAME sobre soft-deleteado siempre reactiva — no debe lanzar error por `deletedAt ≠ null`. |
 
 #### E. Comunicación con la API
 
 | #  | Caso                                                | Comportamiento                                                                                                                                                                                                                                                                                                                                                                                               |
 |----|-----------------------------------------------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| 25 | Path duplicado en la respuesta de la API            | Ignorar el duplicado, usar el primero y log WARN                                                                                                                                                                                                                                                                                                                                                             |
-| 26 | GET /api/sources/paths falla tras agotar reintentos | Abortar la reconciliación. No se envían cambios.                                                                                                                                                                                                                                                                                                                                                             |
-| 27 | POST /api/sources/reconcile falla a mitad           | Modelo de éxito parcial: la API responde siempre 200 con un array `errors` para operaciones individuales fallidas. El Agent verifica `response.errors`: log WARN y continúa — las fallidas se reintentarán en el próximo escaneo. En 5xx + `IOException` de conexión: reintentar con backoff (configurable). `4xx` (excluyendo 409) → no reintentar, log ERROR, abandonar batch. El endpoint es idempotente. |
-| 28 | API devuelve 409 Conflict                           | Log WARN, reintentar 1 vez. Si vuelve a fallar: abandonar batch, log ERROR.                                                                                                                                                                                                                                                                                                                                  |
-| 29 | Archivo cambia entre GET /paths y POST /reconcile   | Ventana pequeña (minutos). La API procesa operaciones duplicadas como no-op. Si un CREATE falla porque el path ya no existe, la API lo maneja internamente. Caso de bajo impacto.                                                                                                                                                                                                                            |
+| 26 | Path duplicado en la respuesta de la API            | Ignorar el duplicado, usar el primero y log WARN                                                                                                                                                                                                                                                                                                                                                             |
+| 27 | GET /api/sources/paths falla tras agotar reintentos | Abortar la reconciliación. No se envían cambios.                                                                                                                                                                                                                                                                                                                                                             |
+| 28 | POST /api/sources/reconcile falla a mitad           | Modelo de éxito parcial: la API responde siempre 200 con un array `errors` para operaciones individuales fallidas. El Agent verifica `response.errors`: log WARN y continúa — las fallidas se reintentarán en el próximo escaneo. En 5xx + `IOException` de conexión: reintentar con backoff (configurable). `4xx` (excluyendo 409) → no reintentar, log ERROR, abandonar batch. El endpoint es idempotente. |
+| 29 | API devuelve 409 Conflict                           | Log WARN, reintentar 1 vez. Si vuelve a fallar: abandonar batch, log ERROR.                                                                                                                                                                                                                                                                                                                                  |
+| 30 | Archivo cambia entre GET /paths y POST /reconcile   | Ventana pequeña (minutos). La API procesa operaciones duplicadas como no-op. Si un CREATE falla porque el path ya no existe, la API lo maneja internamente. Caso de bajo impacto.                                                                                                                                                                                                                            |
 
 #### F. Post-procesamiento y solapamiento
 
-| #  | Caso                                                                                                                             | Comportamiento                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
-|----|----------------------------------------------------------------------------------------------------------------------------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| 30 | Orphan reactivado con hash distinto al almacenado                                                                                | Evaluar `deletedAt` primero. Si `deletedAt ≠ null` y hash coincide → REACTIVATE. Si `deletedAt ≠ null` y hash **no** coincide → CREATE (nuevo source) y el orphan sigue huérfano. Esto ya está reflejado en la tabla de clasificación (§2.5) con el nuevo caso H.                                                                                                                                                                                                                                                                                                                                                              |
-| 31 | Move cross-filesystem (antes "Safe-save que cruza FS")                                                                           | El archivo se mueve entre volúmenes distintos (ej: C:\ → D:\). Windows implementa el move cross-filesystem como COPY+DELETE, no como rename atómico. El Agent lo detecta como CREATE + DELETE con hashes distintos. Los metadatos originales se preservan en el soft-delete del source original. La API implementa transferencia de metadatos por `contentHash` en CREATE (Opción B del issue): al recibir un CREATE, busca un soft-deleteado con el mismo hash. Si hay exactamente 1, transfiere los metadatos al nuevo source y purga el orphan. Si hay 0 o >1, no transfiere. Ver `docs/issues/IssueSafeSaveCrossFS.md`.    |
-| 32 | Archivo de 0 bytes que luego se escribe con contenido                                                                            | CREATE con hash vacío, luego UPDATE en el siguiente escaneo. El source existe brevemente con metadatos vacíos, comportamiento correcto.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
-| 33 | Cambio de hora (DST / ajuste de NTP)                                                                                             | Usar `ScheduledExecutorService.scheduleWithFixedDelay()` que opera sobre el reloj monotónico e ignora cambios de hora real. No usar `Instant.now()` para calcular el próximo intervalo. `scheduleWithFixedDelay` garantiza N segundos entre el fin de una ejecución y el inicio de la siguiente, evitando el skipping de reconciliaciones cuando el escaneo tarda más que el intervalo (ver EC42).                                                                                                                                                                                                                             |
-| 34 | Dos reconciliaciones superpuestas                                                                                                | Usar `AtomicBoolean` como lock entre reconciliaciones. La reconciliación manual se detecta por polling (`GET /api/reconcile/pending`) y no utiliza cola local — el flag `pending` en la API actúa como cola de máximo 1. Si el poll detecta `pending = true` pero hay una reconciliación en curso, se omite (log DEBUG); el próximo poll lo reintentará. Al iniciar una reconciliación manual, el Agent llama a `POST /api/reconcile/ack` para resetear el flag inmediatamente. Si el Agent crashea después del ack pero antes de comenzar el escaneo, el próximo escaneo programado (cada 5 min) lo recupera.                 |
-| 35 | Reconciliación periódica tarda más que el intervalo                                                                              | Mitigado por `scheduleWithFixedDelay` (ver EC33 y EC42). Si el escaneo tarda más que el intervalo, la siguiente ejecución se programa N segundos después del fin de la actual. El intervalo entre fines de ejecución siempre es fijo. Agregar métrica de duración para detectar escaneos lentos.                                                                                                                                                                                                                                                                                                                               |
-| 36 | Archivos duplicados con el mismo contenido (hash idéntico)                                                                       | El caso D clasifica el archivo como RENAME cuando su hash coincide con un source existente, incluso si el usuario solo duplicó el archivo (no lo renombró). El source con metadatos "sigue" al nuevo path; el path original se recrea como CREATE en el próximo escaneo con metadatos vacíos. Comportamiento determinista gracias al tiebreaker alfabético (§2.5). Impacto bajo: la pérdida de metadatos es solo en el path original, no hay pérdida de datos irreversible.                                                                                                                                                    |
-| 37 | **Safe-save en el mismo FS** — aplicaciones que usan el patrón DELETE+CREATE (ej: editores de texto, navegadores, Acrobat)       | Entre el DELETE y el CREATE hay una ventana (ms) donde el archivo no existe en el FS. Si el escaneo ocurre en esa ventana, el source se clasifica como DELETE (caso F). En el próximo escaneo, el archivo reaparece con hash distinto → CREATE (caso E/H). Los metadatos se preservan en el orphan. Si la API implementa transferencia por hash (ver `docs/issues/IssueSafeSaveCrossFS.md`), se recuperan automáticamente en el CREATE. Probabilidad: baja. Impacto: medio (pérdida temporal de metadatos hasta la transferencia por hash o re-asignación manual).                                                             |
-| 38 | **DELETE de source renombrado en el mismo escaneo** — carpeta de autor renombrada genera RENAME + DELETE para los mismos sources | El Agent filtra DELETE cuyo `sourceId` coincide con un RENAME del mismo escaneo. Usa un `Set<sourceId>` global al escaneo (no por batch). Esto evita soft-deletear el source que fue movido. El path viejo simplemente queda libre — no requiere DELETE.                                                                                                                                                                                                                                                                                                                                                                       |
-| 39 | **Orden de operaciones dentro del batch** — la API procesa secuencialmente en el orden del array                                 | El Agent emite operaciones en el orden: RENAME → UPDATE → REACTIVATE → CREATE → DELETE. La API procesa en orden de llegada. Esto garantiza que RENAME se procese antes que DELETE del mismo source (ver EC38), y que REACTIVATE tenga prioridad sobre CREATE para el mismo path.                                                                                                                                                                                                                                                                                                                                               |
-| 41 | **Crash del Agent entre batches de una reconciliación**                                                                          | Los cambios de batches ya procesados por la API persisten. Los batches no enviados se reintentan en el próximo escaneo. Si el usuario purga un source que quedó soft-deleteado en un batch procesado, y ese source debía reactivarse en un batch no enviado, los metadatos se pierden irreversiblemente. Limitación aceptable — la reconciliación es eventalmente consistente y el próximo escaneo la corrige.                                                                                                                                                                                                                 |
-| 42 | **Reconciliación periódica con `scheduleWithFixedDelay`**                                                                        | La periodicidad se implementa con `ScheduledExecutorService.scheduleWithFixedDelay()` (no `scheduleWithFixedRate`). Esto garantiza N segundos entre el fin de una ejecución y el inicio de la siguiente, eliminando el skipping cuando el escaneo tarda más que el intervalo. El `AtomicBoolean` (EC34) se mantiene como salvaguarda adicional para evitar superposición con reconciliación manual. El `AtomicBoolean` se setea a `true` al comenzar cualquier reconciliación (`compareAndSet(false, true)`, abortar si falla) y se libera a `false` en un bloque `finally` para garantizar liberación incluso ante excepción. |
+| #  | Caso                                                                                                                             | Comportamiento                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+|----|----------------------------------------------------------------------------------------------------------------------------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| 31 | Orphan reactivado con hash distinto al almacenado                                                                                | Evaluar `deletedAt` primero. Si `deletedAt ≠ null` y hash coincide → REACTIVATE. Si `deletedAt ≠ null` y hash **no** coincide → CREATE (nuevo source) y el orphan sigue huérfano. Esto ya está reflejado en la tabla de clasificación (§2.5) con el nuevo caso H.                                                                                                                                                                                                                                                                                                                                                               |
+| 32 | Move cross-filesystem (antes "Safe-save que cruza FS")                                                                           | El archivo se mueve entre volúmenes distintos (ej: C:\ → D:\). Windows implementa el move cross-filesystem como COPY+DELETE, no como rename atómico. El Agent lo detecta como CREATE + DELETE con hashes distintos. Los metadatos originales se preservan en el soft-delete del source original. La API implementa transferencia de metadatos por `contentHash` en CREATE (Opción B del issue): al recibir un CREATE, busca un soft-deleteado con el mismo hash. Si hay exactamente 1, transfiere los metadatos al nuevo source y purga el orphan. Si hay 0 o >1, no transfiere. Ver `docs/issues/ISSUE-01-SafeSaveCrossFS.md`. |
+| 33 | Archivo de 0 bytes que luego se escribe con contenido                                                                            | CREATE con hash vacío, luego UPDATE en el siguiente escaneo. El source existe brevemente con metadatos vacíos, comportamiento correcto.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| 34 | Cambio de hora (DST / ajuste de NTP)                                                                                             | Usar `ScheduledExecutorService.scheduleWithFixedDelay()` que opera sobre el reloj monotónico e ignora cambios de hora real. No usar `Instant.now()` para calcular el próximo intervalo. `scheduleWithFixedDelay` garantiza N segundos entre el fin de una ejecución y el inicio de la siguiente, evitando el skipping de reconciliaciones cuando el escaneo tarda más que el intervalo (ver EC42).                                                                                                                                                                                                                              |
+| 35 | Dos reconciliaciones superpuestas                                                                                                | Usar `AtomicBoolean` como lock entre reconciliaciones. La reconciliación manual se detecta por polling (`GET /api/reconcile/pending`) y no utiliza cola local — el flag `pending` en la API actúa como cola de máximo 1. Si el poll detecta `pending = true` pero hay una reconciliación en curso, se omite (log DEBUG); el próximo poll lo reintentará. Al iniciar una reconciliación manual, el Agent llama a `POST /api/reconcile/ack` para resetear el flag inmediatamente. Si el Agent crashea después del ack pero antes de comenzar el escaneo, el próximo escaneo programado (cada 5 min) lo recupera.                  |
+| 36 | Reconciliación periódica tarda más que el intervalo                                                                              | Mitigado por `scheduleWithFixedDelay` (ver EC34 y EC42). Si el escaneo tarda más que el intervalo, la siguiente ejecución se programa N segundos después del fin de la actual. El intervalo entre fines de ejecución siempre es fijo. Agregar métrica de duración para detectar escaneos lentos.                                                                                                                                                                                                                                                                                                                                |
+| 37 | Archivos duplicados con el mismo contenido (hash idéntico)                                                                       | El caso D clasifica el archivo como RENAME cuando su hash coincide con un source existente, incluso si el usuario solo duplicó el archivo (no lo renombró). El source con metadatos "sigue" al nuevo path; el path original se recrea como CREATE en el próximo escaneo con metadatos vacíos. Comportamiento determinista gracias al tiebreaker alfabético (§2.5). Impacto bajo: la pérdida de metadatos es solo en el path original, no hay pérdida de datos irreversible.                                                                                                                                                     |
+| 38 | **Safe-save en el mismo FS** — aplicaciones que usan el patrón DELETE+CREATE (ej: editores de texto, navegadores, Acrobat)       | Entre el DELETE y el CREATE hay una ventana (ms) donde el archivo no existe en el FS. Si el escaneo ocurre en esa ventana, el source se clasifica como DELETE (caso F). En el próximo escaneo, el archivo reaparece con hash distinto → CREATE (caso E/H). Los metadatos se preservan en el orphan. Si la API implementa transferencia por hash (ver `docs/issues/ISSUE-01-SafeSaveCrossFS.md`), se recuperan automáticamente en el CREATE. Probabilidad: baja. Impacto: medio (pérdida temporal de metadatos hasta la transferencia por hash o re-asignación manual).                                                          |
+| 39 | **DELETE de source renombrado en el mismo escaneo** — carpeta de autor renombrada genera RENAME + DELETE para los mismos sources | El Agent filtra DELETE cuyo `sourceId` coincide con un RENAME del mismo escaneo. Usa un `Set<sourceId>` global al escaneo (no por batch). Esto evita soft-deletear el source que fue movido. El path viejo simplemente queda libre — no requiere DELETE.                                                                                                                                                                                                                                                                                                                                                                        |
+| 40 | **Orden de operaciones dentro del batch** — la API procesa secuencialmente en el orden del array                                 | El Agent emite operaciones en el orden: RENAME → UPDATE → REACTIVATE → CREATE → DELETE. La API procesa en orden de llegada. Esto garantiza que RENAME se procese antes que DELETE del mismo source (ver EC39), y que REACTIVATE tenga prioridad sobre CREATE para el mismo path.                                                                                                                                                                                                                                                                                                                                                |
+| 41 | **Crash del Agent entre batches de una reconciliación**                                                                          | Los cambios de batches ya procesados por la API persisten. Los batches no enviados se reintentan en el próximo escaneo. Si el usuario purga un source que quedó soft-deleteado en un batch procesado, y ese source debía reactivarse en un batch no enviado, los metadatos se pierden irreversiblemente. Limitación aceptable — la reconciliación es eventalmente consistente y el próximo escaneo la corrige.                                                                                                                                                                                                                  |
+| 42 | **Reconciliación periódica con `scheduleWithFixedDelay`**                                                                        | La periodicidad se implementa con `ScheduledExecutorService.scheduleWithFixedDelay()` (no `scheduleWithFixedRate`). Esto garantiza N segundos entre el fin de una ejecución y el inicio de la siguiente, eliminando el skipping cuando el escaneo tarda más que el intervalo. El `AtomicBoolean` (EC35) se mantiene como salvaguarda adicional para evitar superposición con reconciliación manual. El `AtomicBoolean` se setea a `true` al comenzar cualquier reconciliación (`compareAndSet(false, true)`, abortar si falla) y se libera a `false` en un bloque `finally` para garantizar liberación incluso ante excepción.  |
 
 ### 2.9. Contrato de comunicación con la API
 
@@ -327,7 +335,7 @@ Envía un batch de operaciones para su persistencia. Cada operación es idempote
     {
       "type": "RENAME",
       "sourceId": "550e8400-e29b-41d4-a716-446655440000",
-      "name": "Cien años de soledad",
+      "name": "Cien años de soledad.pdf",
       "path": "biblioteca/Gabriel García Márquez/Cien años de soledad.pdf",
       "pathLower": "biblioteca/gabriel garcía márquez/cien años de soledad.pdf",
       "fileFormat": "PDF",
@@ -398,7 +406,7 @@ consistencia:
 **Nota sobre RENAME con source soft-deleteado:** Si el `sourceId` de una operación RENAME corresponde a un source con
 `deletedAt ≠ null`, la API debe: (1) limpiar `deletedAt` (reactivar), (2) actualizar `path` y `pathLower` con los
 valores recibidos, (3) actualizar `authorName` si se envió, (4) preservar el resto de metadatos (año, edición, URL,
-tags). No debe rechazar la operación por el estado soft-deleteado. Ver EC40.
+tags). No debe rechazar la operación por el estado soft-deleteado. Ver EC25.
 
 #### GET /api/reconcile/pending
 
@@ -462,7 +470,7 @@ graph TD
     end
 
 subgraph "Reconciliation Runner (tarea efímera)"
-SC[Scanner<br/>Files.walk]
+SC[Scanner<br/>Files.walkFileTree]
 CL[Classifier<br/>tabla §2.5]
 HA[Hasher<br/>SHA-256]
 BA[Batching<br/>agrupar N ops]
@@ -504,7 +512,7 @@ siguiente). No hay colas asíncronas entre fases.
 
 ```mermaid
 flowchart LR
-    A[Scanner<br/>Files.walk] -->|List<Path>| B[Classifier<br/>tabla §2.5]
+    A[Scanner<br/>Files.walkFileTree] -->|List<Path>| B[Classifier<br/>tabla §2.5]
 B -->|List<Operation>|C[Hasher<br/>SHA-256]
 C -->|List<Operation>|D[Batching<br/>agrupar]
 D -->|" Batch [] "|E[Sender<br/>POST /reconcile]
@@ -512,11 +520,16 @@ D -->|" Batch [] "|E[Sender<br/>POST /reconcile]
 
 #### 3.2.1. Scanner
 
-- Invoca `Files.walk(rootDir, maxDepth)` con `maxDepth` configurable (default: 10).
+- Invoca
+  `Files.walkFileTree(rootDir, EnumSet.noneOf(FileVisitOption.class), maxDepth, new SimpleFileVisitor<Path>() { ... })`.
+- Sobrescribe `visitFileFailed(Path file, IOException exc)` → retorna `FileVisitResult.CONTINUE`. Loguea WARN con el
+  nombre del archivo y la excepción.
+- Sobrescribe `preVisitDirectory(Path dir, BasicFileAttributes attrs)` → si el directorio no es legible, retorna
+  `FileVisitResult.SKIP_SUBTREE` con log WARN.
+- `maxDepth` configurable (default: 10).
 - Normaliza paths: separadores `\` → `/`, Unicode NFC, `pathLower`.
 - Filtra por extensión: `.pdf`, `.epub`, `.mhtml` (case-insensitive). Otras extensiones se loguean DEBUG y se omiten.
-- Paths bloqueados por otro proceso se saltan con log WARN.
-- Directorio raíz se verifica con `Files.exists()` antes de walk. Si no existe se aborta.
+- Directorio raíz se verifica con `Files.exists()` antes de `walkFileTree`. Si no existe se aborta.
 - **Produce:** `List<NormalizedPath>` con `path`, `pathLower`, `fileFormat`.
 
 #### 3.2.2. Classifier
@@ -524,7 +537,7 @@ D -->|" Batch [] "|E[Sender<br/>POST /reconcile]
 - Recibe la lista de paths del FS y el estado conocido de la API (`GET /api/sources/paths`).
 - Construye índices en memoria: `Map<pathLower, SourceState>` y `Map<contentHash, SourceState>`.
 - Clasifica cada archivo contra el estado conocido aplicando la tabla de §2.5.
-- Mantiene `Set<sourceId>` de sources renombrados durante todo el escaneo para filtrar DELETEs duplicados (EC38).
+- Mantiene `Set<sourceId>` de sources renombrados durante todo el escaneo para filtrar DELETEs duplicados (EC39).
 - **Determinismo:** múltiples CREATE con mismo hash se ordenan alfabéticamente por path.
 - **Produce:** `List<Operation>` con tipo, sourceId (si aplica), path, hash, fileFormat, authorName.
 
@@ -571,7 +584,7 @@ sequenceDiagram
     Sched ->> Recon: Ejecutar reconciliación (adquiere AtomicBoolean)
     Recon ->> API: GET /api/sources/paths
     API -->> Recon: 200 [sources...]
-    Recon ->> Recon: Files.walk + classify + hash + batch
+    Recon ->> Recon: Files.walkFileTree + classify + hash + batch
     Recon ->> API: POST /api/sources/reconcile
     API -->> Recon: 200 {processed: N}
     Recon ->> Recon: libera AtomicBoolean (finally)

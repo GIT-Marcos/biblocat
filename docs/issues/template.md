@@ -2,15 +2,23 @@
 
 **Estado: ❌ No resuelto**
 **Severidad:** <!-- 🟩 1: Mejora | 🟧 2: Importante | 🟥 3: Bloqueante -->
+**Tipo:** <!-- 🐛 Bug: error existente | ✨ Mejora: optimización/feature | 🏛️ Decisión: deriva en ADR -->
 
 **Nota:** <resumen de una línea del problema>
+
+**Decisión:** <!-- Solo si aplica: enlace al ADR en docs/issues/decisions/ -->
 
 ## Contexto
 
 <descripción del problema, escenarios donde ocurre, causas, impacto>
 
 ## Solución tomada
+
 <!-- Esta sección se agrega SOLO cuando el issue está al menos parcialmente resuelto.
      Incluir: decisión adoptada, referencias a documentación (EC#, §), archivos afectados. -->
 
 <detalle de la solución>
+
+## Referencias
+
+<!-- Issues relacionados, ADRs, documentación externa. -->

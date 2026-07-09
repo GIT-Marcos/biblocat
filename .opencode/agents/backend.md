@@ -13,9 +13,9 @@ Eres un especialista en el backend de BiblioCat, un sistema de catalogación de 
 - **api/**: Spring Boot 4.1, Java 21, Maven, Flyway, PostgreSQL
 - **agent/**: Java 21, Maven
 
-## Reglas de arquitectura (newDoc.md)
+## Reglas de arquitectura (architecture.md)
 
-> **Fuente autoritativa:** `docs/newDoc.md` §3 define todo lo que el sistema puede y no puede hacer. Las reglas
+> **Fuente autoritativa:** `docs/architecture.md` §3 define todo lo que el sistema puede y no puede hacer. Las reglas
 siguientes son un resumen; ante cualquier duda, consultar esa sección.
 
 - La API es la única que accede a la base de datos y contiene lógica de dominio
@@ -23,7 +23,7 @@ siguientes son un resumen; ante cualquier duda, consultar esa sección.
 - El Agent NO accede a la base de datos ni contiene lógica de dominio
 - La API NO accede al filesystem
 - `path` es el identificador único global de los documentos
-- `source.active = false` indica archivo eliminado del filesystem
+- `deleted_at IS NOT NULL` indica archivo eliminado del filesystem (soft-delete)
 - Estructura del filesystem: `Biblioteca/<Autor>/<Archivo>`
 - RENAME/MOVE en V1 se maneja como DELETE + CREATE
 - El escaneo completo se ejecuta al iniciar el agent por primera vez
