@@ -52,36 +52,62 @@ The authoritative documentation for development is in the new set of files under
 
 ## Problem tracking
 
-Functional issues are recorded as Markdown files in `docs/issues/`. Each issue is numbered sequentially:
-`docs/issues/ISSUE-NN-Name.md`. Use the template at `docs/issues/template.md`.
-Format:
+Every bug, improvement, or architectural decision MUST be documented as an issue file.
+
+### File naming
+
+`docs/issues/ISSUE-NN-short-descriptive-name.md`
+
+- `NN` is the next available number (sequential, no gaps, no reuse).
+- Name: 2-5 lowercase words, hyphen-separated. Example: `ISSUE-06-detectar-corrupcion-hash.md`
+
+### Template
+
+MUST use the template at `docs/issues/template.md`. Deviations are not allowed.
+
+**Mandatory fields:**
 
 ```
-**Estado: ❌ No resuelto | 🟡 Parcialmente resuelto | ✅ Resuelto (doc) | ✅ Resuelto (impl)**
-**Severidad: 🟩 1** (mejora) | 🟧 2 (importante) | 🟥 3 (bloqueante)**
-**Nota:** <summary>
-
-## Solución tomada  ← only if at least partially resolved
+**Estado:** ❌ Abierto | 🔄 En progreso | ✅ Cerrado
+**Severidad:** 🟩 1 | 🟧 2 | 🟥 3
+**Nota:** <one-line summary>
 ```
 
-When an issue is fully resolved, move it to `docs/issues/resolved/` (preserving its ISSUE-NN number).
+- `Estado` MUST be exactly one of the three values. No other values allowed.
+- `Severidad`: 🟩 1 = minor/enhancement, 🟧 2 = important, 🟥 3 = blocking.
+- `Nota` is mandatory and MUST be a single line.
 
-## Issues → ADR rules (MANDATORY)
+**Mandatory sections:**
 
-These rules govern the relationship between issues and ADRs. Follow them exactly. Do not infer, extend, or override
-them.
+- `## Contexto` — describe the problem, when it occurs, impact. MUST be present in every issue.
+- `## Solución` — describe the solution. MUST be present when estado is `🔄 En progreso` or `✅ Cerrado`.
 
-1. Every problem is documented as an issue in `docs/issues/` using the template at `docs/issues/template.md`.
-2. The solution is recorded inline in `## Solución tomada` **within the same issue file**.
-3. **Do NOT create an ADR unless** the decision meets ALL of:
-    - Schema change (new table, column, migration).
-    - Multiple alternatives evaluated with documented trade-offs.
-    - Cross-module impact (touches at least two of: API, Agent, Frontend).
-4. If an ADR is created, place it at `docs/issues/decisions/ADR-NNNN-titulo.md`.
-5. Cross-references are mandatory in BOTH directions:
-    - The issue MUST list `**Decisión:** docs/issues/decisions/ADR-NNNN-titulo.md`.
-    - The ADR MUST list `**Issue:** docs/issues/ISSUE-NN-Name.md`.
-6. An ADR MAY exist without an issue (pure design decision). An issue MAY resolve without an ADR (inline solution).
-   The relationship is NOT 1:1. Do not force an ADR where one is not needed, and do not skip an ADR where one is needed.
+**Optional sections:**
 
-**Restriction: if you are unsure whether a change requires an ADR, ask the user. Do not decide on your own.**
+- `## Alternativas consideradas` — evaluated options with trade-offs. Use for architectural decisions.
+- `## Consecuencias` — positive/negative impact, limitations. Use for architectural decisions.
+- `## Referencias` — links to docs/ sections, related issues.
+
+### Issue lifecycle
+
+1. **Creation:** Create file with `❌ Abierto`. Update `docs/issues/INDEX.md`.
+2. **Analysis:** When a solution is identified, add `## Solución` and change estado to `🔄 En progreso`.
+3. **Resolution:** When fully implemented and verified, change estado to `✅ Cerrado` and MOVE the file to
+   `docs/issues/resolved/`.
+4. **INDEX.md update:** Every status change MUST be reflected in INDEX.md (move row between open and resolved tables).
+
+### Hard restrictions (MANDATORY)
+
+1. **NO separate ADRs.** Problem and solution ALWAYS in the same ISSUE-NN file. Never create an ADR-* file.
+2. **NO `decisions/` subdirectory.** All issues live directly in `docs/issues/` until resolved.
+3. **NO alternative status values.** Only ❌ Abierto, 🔄 En progreso, ✅ Cerrado.
+4. **NO skipping `## Contexto`.** Every issue MUST describe the problem.
+5. **NO inline resolution without tracking.** If it is worth documenting, it is worth an issue file.
+6. **NO reusing numbers.** Each NN is unique even after an issue is moved to resolved.
+7. **NO modifying existing issue files** unless explicitly asked by the user.
+
+### When to ask the user
+
+- If unsure about severity → ask. Do not infer.
+- If unsure whether something needs an issue → ask. Trivial changes (typos, formatting only) do not.
+- If unsure about the next available NN → check INDEX.md and the issues/ directory. If still unclear, ask.

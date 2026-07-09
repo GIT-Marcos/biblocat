@@ -1,12 +1,9 @@
 # Issue: Safe-save que cruza filesystems — pérdida de metadatos
 
-**Estado: 🟡 Parcialmente resuelto (doc)**
-**Severidad: 🟧 2**
-**Tipo:** 🏛️ Decisión
+**Estado:** 🔄 En progreso
+**Severidad:** 🟧 2
 
-**Nota:** Opción B documentada en EC32 (§2.8.F), pero no reflejada en el contrato de `POST /sources/reconcile` (§2.9).
-
-**Decisión:** `agent.md §2.8.F` (EC32)
+**Nota:** Opción B implementada, pero la transferencia por hash solo funciona entre escaneos (no intra-batch, ver EC32). Opción C postergada.
 
 ## Contexto
 
@@ -85,10 +82,9 @@ Costo: medio (lógica adicional en el procesador de batch). Cubre el mismo ciclo
 
 ## Recomendación
 
-**Opción B implementada actualmente en la doc.** La API transfiere metadatos por hash en CREATE, cubriendo ciclos
-separados (DELETE en escaneo anterior, CREATE ahora). Opción C (detección intra-batch) pospuesta por el momento.
+**Opción B implementada actualmente.** La API transfiere metadatos por hash en CREATE, buscando en orphans de escaneos anteriores. No cubre el caso intra-batch (CREATE y DELETE en el mismo batch) porque el orden del batch es CREATE antes que DELETE (ver `agent.md §2.9`). Opción C (detección intra-batch) pospuesta.
 
-## Solución tomada
+## Solución
 
 Se adoptó la **Opción B**: la API transfiere metadatos por `contentHash` en CREATE.
 
@@ -96,7 +92,11 @@ Se adoptó la **Opción B**: la API transfiere metadatos por `contentHash` en CR
 - Si hay exactamente 1: transfiere metadatos y purga el orphan.
 - Si hay 0 o >1: no transfiere.
 
-**Pendiente:** documentar este comportamiento en el contrato de `POST /sources/reconcile` (`agent.md §2.9`).
+**Limitación conocida:** La transferencia no funciona intra-batch. Si el CREATE y el DELETE ocurren en el mismo
+escaneo (cross-FS move o safe-save), el orphan aún no existe cuando se procesa el CREATE (el orden del batch es
+CREATE antes que DELETE, ver `agent.md §2.9`). Los metadatos se transfieren en el siguiente escaneo, cuando el
+Agent clasifica el path existente como REACTIVATE o RENAME contra el orphan. Esto implica un delay de hasta ~5 min
+con metadatos vacíos. Ver `agent.md §2.8.F EC32`.
 
 ## Impacto
 

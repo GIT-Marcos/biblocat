@@ -1,8 +1,7 @@
 # Issue: Omisión de hash en escaneos subsecuentes
 
-**Estado: ❌ No resuelto**
-**Severidad: 🟩 1**
-**Tipo:** ✨ Mejora
+**Estado:** ❌ Abierto
+**Severidad:** 🟩 1
 
 **Nota:** El cómputo SHA-256 en cada escaneo es la operación más costosa en I/O de disco. Se evaluaron 4 estrategias; la
 decisión actual es no optimizar (Opción C: siempre hashear), pero queda pendiente implementar la Estrategia A si el

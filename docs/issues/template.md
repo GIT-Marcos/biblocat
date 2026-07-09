@@ -1,24 +1,30 @@
-# Issue: <título corto y descriptivo>
+# ISSUE-NN: Título descriptivo
 
-**Estado: ❌ No resuelto**
-**Severidad:** <!-- 🟩 1: Mejora | 🟧 2: Importante | 🟥 3: Bloqueante -->
-**Tipo:** <!-- 🐛 Bug: error existente | ✨ Mejora: optimización/feature | 🏛️ Decisión: deriva en ADR -->
+**Estado:** ❌ Abierto | 🔄 En progreso | ✅ Cerrado
+**Severidad:** 🟩 1 | 🟧 2 | 🟥 3
 
-**Nota:** <resumen de una línea del problema>
-
-**Decisión:** <!-- Solo si aplica: enlace al ADR en docs/issues/decisions/ -->
+**Nota:** Resumen de una línea del problema.
 
 ## Contexto
 
-<descripción del problema, escenarios donde ocurre, causas, impacto>
+<!--
+  Problema: qué ocurre, cuándo, impacto. Incluir escenarios si aplica.
+  Para decisiones arquitectónicas traer: por qué se necesita el cambio, qué se evaluó.
+-->
 
-## Solución tomada
+## Solución
 
-<!-- Esta sección se agrega SOLO cuando el issue está al menos parcialmente resuelto.
-     Incluir: decisión adoptada, referencias a documentación (EC#, §), archivos afectados. -->
+<!-- Decisión adoptada, archivos afectados, referencias a docs/ -->
 
-<detalle de la solución>
+## Alternativas consideradas
+
+<!-- Opcional. Para bugs simples puede omitirse.
+     Para decisiones con trade-offs: listar opciones evaluadas, pros/cons. -->
+
+## Consecuencias
+
+<!-- Opcional. Impacto positivo, negativo, limitaciones. -->
 
 ## Referencias
 
-<!-- Issues relacionados, ADRs, documentación externa. -->
+<!-- Issues relacionados, secciones de documentación. -->

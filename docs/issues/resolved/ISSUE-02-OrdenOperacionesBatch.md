@@ -1,13 +1,10 @@
 # Issue: Orden de operaciones dentro del batch de reconciliación
 
-**Estado: ✅ Resuelto (doc)**
-**Severidad: 🟥 3**
-**Tipo:** 🏛️ Decisión
+**Estado:** ✅ Cerrado
+**Severidad:** 🟥 3
 
 **Nota:** DELETE por `sourceId` (tabla §2.9), orden RENAME→DELETE (EC40), filtro `Set<sourceId>` global (EC39), y RENAME
 de soft-deleteado (EC25).
-
-**Decisión:** `docs/agent.md §2.8.D` (EC25), `docs/agent.md §2.8.F` (EC39, EC40), `docs/agent.md §2.9`
 
 ## Contexto
 
@@ -79,7 +76,7 @@ transfiere metadatos, (2) actualiza path, (3) soft-deletea el path viejo — tod
 Opción 1 + Opción 2. DELETE por sourceId elimina la ambigüedad, y ordenar RENAME antes que DELETE es una salvaguarda
 simple. Son complementarias y de bajo costo de implementación.
 
-## Solución tomada
+## Solución
 
 Se implementaron las opciones 1 y 2 de las propuestas:
 

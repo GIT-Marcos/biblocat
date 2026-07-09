@@ -14,12 +14,10 @@ módulo.
 | `front`        | Componentes de UI, rutas, páginas, configuración del frontend                        |
 | `Issue*`       | Problemas funcionales detectados, con severidad y estado. Ubicados en `docs/issues/` |
 
-Las decisiones arquitectónicas documentadas (ADR) se encuentran en `docs/issues/decisions/`. Los comandos de build, test
-y
-desarrollo están definidos en `.opencode/commands/`.
+Los comandos de build, test y desarrollo están definidos en `.opencode/commands/`.
 
-Los issues funcionales se documentan en `docs/issues/`. Cada issue indica estado (resuelto, parcial, no resuelto),
-severidad (🟩 1 mejora, 🟧 2 importante, 🟥 3 bloqueante) y, cuando aplica, la solución adoptada. Los issues
+Los issues funcionales se documentan en `docs/issues/`. Cada issue indica estado (❌ Abierto, 🔄 En progreso, ✅ Cerrado),
+severidad (🟩 1, 🟧 2, 🟥 3) y, cuando aplica, la solución adoptada. Los issues
 completamente resueltos se mueven a `docs/issues/resolved/`.
 
 ### 0.1. Scope por documento
@@ -98,22 +96,22 @@ BiblioCat **no** es:
 
 ## 2. Glosario
 
-| Término         | Definición                                                                                                                                                                                                      | Módulo                 |
-|-----------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|------------------------|
-| Source          | Archivo PDF, EPUB o MHTML descubierto en el directorio de biblioteca y representado como registro en la base de datos.                                                                                          | API                    |
-| Agent           | Daemon Java que sincroniza el catálogo con el filesystem mediante escaneos programados (inicio, periódico, manual) y comunica cambios a la API vía HTTP.                                                        | Agent                  |
-| API             | Aplicación Spring Boot que expone endpoints REST, gestiona persistencia con JPA y ejecuta migraciones Flyway.                                                                                                   | API                    |
-| Frontend        | Aplicación React que provee la interfaz de usuario para navegar y gestionar el catálogo.                                                                                                                        | Front                  |
-| Reconciliation  | Proceso de sincronización entre el estado actual del filesystem y los registros en la base de datos.                                                                                                            | Agent + API            |
-| Filesystem (FS) | Directorio local que contiene los archivos de biblioteca. Es la fuente de verdad del sistema.                                                                                                                   | Agent                  |
-| Source format   | Discriminante de tipo de archivo: PDF, EPUB o MHTML.                                                                                                                                                            | API                    |
-| Tag             | Etiqueta asignada por el usuario para categorizar sources. Relación muchos a muchos con sources.                                                                                                                | API + Front            |
-| Write-race      | Condición de carrera donde el Agent intenta leer/hashear un archivo mientras este está siendo escrito por otro proceso. El Agent debe detectar y reintentar (backoff) para evitar hashes parciales o corruptos. | Agent                  |
-| Soft delete     | Marcado de un registro como eliminado (se establece `deleted_at`) sin borrarlo físicamente. Los metadatos se preservan.                                                                                         | API                    |
-| Content hash    | Hash SHA-256 del contenido del archivo. Usado para detectar renombres y safe-save.                                                                                                                              | Agent + API            |
-| Orphan source   | Source cuyo archivo fue eliminado del FS pero cuyo registro de metadatos persiste en la base de datos (soft-delete). Puede ser reactivada si el archivo reaparece.                                              | API                    |
-| Metadata        | Información asociada a un source en la base de datos: nombre, path, formato, año, edición, URL, autor, tags, content hash y timestamps. Se preserva durante el soft-delete y se transfiere en caso de rename.   | API                    |
-| ADR             | Architecture Decision Record. Documento que registra una decisión arquitectónica, su contexto y consecuencias.                                                                                                  | docs/issues/decisions/ |
+| Término         | Definición                                                                                                                                                                                                      | Módulo       |
+|-----------------|-----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|--------------|
+| Source          | Archivo PDF, EPUB o MHTML descubierto en el directorio de biblioteca y representado como registro en la base de datos.                                                                                          | API          |
+| Agent           | Daemon Java que sincroniza el catálogo con el filesystem mediante escaneos programados (inicio, periódico, manual) y comunica cambios a la API vía HTTP.                                                        | Agent        |
+| API             | Aplicación Spring Boot que expone endpoints REST, gestiona persistencia con JPA y ejecuta migraciones Flyway.                                                                                                   | API          |
+| Frontend        | Aplicación React que provee la interfaz de usuario para navegar y gestionar el catálogo.                                                                                                                        | Front        |
+| Reconciliation  | Proceso de sincronización entre el estado actual del filesystem y los registros en la base de datos.                                                                                                            | Agent + API  |
+| Filesystem (FS) | Directorio local que contiene los archivos de biblioteca. Es la fuente de verdad del sistema.                                                                                                                   | Agent        |
+| Source format   | Discriminante de tipo de archivo: PDF, EPUB o MHTML.                                                                                                                                                            | API          |
+| Tag             | Etiqueta asignada por el usuario para categorizar sources. Relación muchos a muchos con sources.                                                                                                                | API + Front  |
+| Write-race      | Condición de carrera donde el Agent intenta leer/hashear un archivo mientras este está siendo escrito por otro proceso. El Agent debe detectar y reintentar (backoff) para evitar hashes parciales o corruptos. | Agent        |
+| Soft delete     | Marcado de un registro como eliminado (se establece `deleted_at`) sin borrarlo físicamente. Los metadatos se preservan.                                                                                         | API          |
+| Content hash    | Hash SHA-256 del contenido del archivo. Usado para detectar renombres y safe-save.                                                                                                                              | Agent + API  |
+| Orphan source   | Source cuyo archivo fue eliminado del FS pero cuyo registro de metadatos persiste en la base de datos (soft-delete). Puede ser reactivada si el archivo reaparece.                                              | API          |
+| Metadata        | Información asociada a un source en la base de datos: nombre, path, formato, año, edición, URL, autor, tags, content hash y timestamps. Se preserva durante el soft-delete y se transfiere en caso de rename.   | API          |
+| Issue           | Documento que registra un problema, mejora o decisión arquitectónica con su contexto y solución.                                                                                                                | docs/issues/ |
 
 ## 3. Qué puede hacer el usuario y qué no
 

@@ -161,6 +161,14 @@ Purga físicamente un orphan source. **Irreversible.** Solo permite purgar sourc
 
 Devuelve el estado conocido de todos los sources para que el Agent ejecute la reconciliación.
 
+**Reglas de orden y unicidad:**
+
+- Los sources activos (`deletedAt = null`) aparecen **antes** que los orphans (`deletedAt ≠ null`).
+- Si dos sources comparten el mismo `pathLower`, el activo aparece primero y el orphan se omite
+  de la respuesta. Esto evita ambigüedades durante la clasificación en el Agent (caso H de §2.5
+  en `agent.md`).
+- El Agent recibe un `pathLower` único por cada fila, sin necesidad de resolver conflictos.
+
 **Response `200 OK`:**
 
 ```json
@@ -177,7 +185,10 @@ Devuelve el estado conocido de todos los sources para que el Agent ejecute la re
 
 **Respuesta plana** (sin paginación) — el Agent necesita el conjunto completo para clasificar contra el FS.
 
-**Errores:** ningún código de error específico. El Agent reintenta ante fallo de conexión.
+**Garantía:** cada `pathLower` aparece como máximo una vez. Si hay un activo y un orphan con el
+mismo `pathLower`, solo el activo se incluye.
+
+**Errores:** ninguno específico. El Agent reintenta ante fallo de conexión.
 
 ---
 
@@ -252,6 +263,11 @@ Procesa un batch de operaciones enviadas por el Agent. Idempotente: operaciones 
       "type": "CREATE",
       "path": "error.pdf",
       "error": "UNSUPPORTED_FORMAT"
+    },
+    {
+      "type": "RENAME",
+      "sourceId": "550e8400-e29b-41d4-a716-446655440099",
+      "error": "SOURCE_NOT_FOUND"
     }
   ]
 }
@@ -260,9 +276,20 @@ Procesa un batch de operaciones enviadas por el Agent. Idempotente: operaciones 
 **Reglas de ordenamiento:** El Agent envía las operaciones en el orden RENAME → UPDATE → REACTIVATE → CREATE → DELETE.
 La API procesa secuencialmente en el orden del array. Cada operación ve el estado resultante de la anterior.
 
+**Nota sobre transferencia de metadatos:** La transferencia por `contentHash` en CREATE (Opción B, ver
+`docs/issues/ISSUE-01-SafeSaveCrossFS.md`) busca orphans de escaneos anteriores. CREATE y DELETE en el mismo batch
+no activan la transferencia porque el orphan aún no existe (DELETE se procesa después de CREATE).
+Ver `agent.md §2.8.F EC32`.
+
 **Errores individuales:** La API responde siempre `200` con errores por operación en el array `errors`. El Agent decide
 si reintentar. Excepciones: `4xx` (excluyendo `409`) no reintentar; `409` reintentar 1 vez; `5xx` reintentar con backoff
 configurable.
+
+| Código de error      | Causa                                                  | Acción del Agent                                          |
+|----------------------|--------------------------------------------------------|-----------------------------------------------------------|
+| `SOURCE_NOT_FOUND`   | El `sourceId` no existe (fue purgado entre GET y POST) | Log WARN, no reintentar, continuar con el resto del batch |
+| `UNSUPPORTED_FORMAT` | Formato de archivo no soportado                        | Log WARN, no reintentar                                   |
+| `DUPLICATE_PATH`     | `pathLower` ya existe como activo                      | Log WARN, reintentar 1 vez                                |
 
 **Reglas de procesamiento:**
 
@@ -270,11 +297,18 @@ configurable.
   `409` en `errors`.
 - **RENAME**: actualiza path y pathLower del source identificado por `sourceId`. Re-infere el autor si se envía
   `authorName`. Si el source estaba soft-deleteado, lo reactiva automáticamente.
+  Si `sourceId` no existe, responde `SOURCE_NOT_FOUND` en `errors`.
 - **UPDATE**: actualiza `contentHash` del source identificado por `sourceId`. No modifica otros campos.
+  Si `sourceId` no existe, responde `SOURCE_NOT_FOUND` en `errors`.
 - **DELETE**: aplica soft-delete (setea `deleted_at = now()`) al source identificado por `sourceId`. Idempotente: si ya
   estaba soft-deleteado, es no-op.
+  Si `sourceId` no existe, responde `SOURCE_NOT_FOUND` en `errors`.
 - **REACTIVATE**: limpia `deleted_at` del source identificado por `sourceId`. Actualiza path y contentHash. Preserva
   metadatos existentes.
+  Si `sourceId` no existe, responde `SOURCE_NOT_FOUND` en `errors`.
+  **Nota:** REACTIVATE no modifica `pathLower`. El caso B de clasificación (`agent.md §2.5`) requiere que el path
+  exista en la API, por lo que el path no cambia respecto al estado conocido. Si el path hubiera cambiado, el Agent
+  clasificaría como RENAME (caso D), no como REACTIVATE.
 
 ---
 
@@ -444,6 +478,9 @@ Solicita una reconciliación manual. Asíncrona: responde inmediatamente, el Age
 
 **Request body:** vacío.
 
+**Comportamiento:** Idempotente. Si `pending` ya es `true`, la API responde `200` con el mismo cuerpo
+(sin error). Esto cubre doble clic del usuario o múltiples solicitudes simultáneas desde el frontend.
+
 **Response `200 OK`:**
 
 ```json
@@ -452,6 +489,13 @@ Solicita una reconciliación manual. Asíncrona: responde inmediatamente, el Age
   "message": "Reconciliation pending."
 }
 ```
+
+**Errors:** No genera errores HTTP. Siempre responde `200`.
+
+**Nota sobre race condition:** Existe una ventana donde el Agent llama a `POST /api/reconcile/ack`
+(que resetea `pending` a `false`) concurrentemente con una nueva solicitud del frontend. En ese caso,
+la solicitud del frontend es idempotente (responde `200`) pero el ack la invalida inmediatamente.
+El próximo poll del Agent no verá `pending=true`. El usuario debe reintentar. Ver `agent.md §2.8.F EC43`.
 
 ---
 
@@ -480,6 +524,9 @@ Resetea el flag `pending` a `false`. El Agent lo llama inmediatamente antes de i
   "acknowledged": true
 }
 ```
+
+**Nota:** El Agent también llama a este endpoint al iniciar para limpiar flags huérfanos de un crash anterior
+(ver `agent.md §2.8.F EC44`). Es seguro llamarlo en cualquier momento — si `pending` ya es `false`, es no-op.
 
 ## 3. Diseño de la API
 

@@ -1,8 +1,7 @@
 # Issue: Prefijo `\\?\` en Windows para paths largos
 
-**Estado: ❌ No resuelto**
-**Severidad: 🟩 1**
-**Tipo:** 🏛️ Decisión
+**Estado:** ❌ Abierto
+**Severidad:** 🟩 1
 
 **Nota:** Pendiente de decidir entre NIO puro (sin `\\?\`) o soporte con APIs legacy. Diseño bifurcado en EC5.
 
@@ -52,8 +51,8 @@ exclusivamente NIO (`Path`, `Files`, etc.). El prefijo es necesario solo cuando 
 
 **Pregunta clave:** ¿El Agent usa alguna API legacy de Windows que requiera `\\?\`, o usa exclusivamente NIO?
 
-Si usa solo NIO (`Files.walkFileTree()`, `Files.size()`, `DigestInputStream` sobre `FileChannel`), el prefijo `\\?\` **no es
-necesario** y agregarlo puede causar problemas de compatibilidad.
+Si usa solo NIO (`Files.walkFileTree()`, `Files.size()`, `DigestInputStream` sobre `FileChannel`), el prefijo `\\?\` *
+*no es necesario** y agregarlo puede causar problemas de compatibilidad.
 
 ### 5. Construcción de paths hijos
 
@@ -65,7 +64,8 @@ Archivo hijo: \\?\C:\biblioteca\autor\libro.pdf
 ```
 
 Al hacer `root.resolve("autor/libro.pdf")`, Java NIO genera correctamente el path completo con el prefijo. Pero hay que
-verificar que `Files.walkFileTree()` propague correctamente el prefijo a los hijos — debe funcionar, pero necesita prueba.
+verificar que `Files.walkFileTree()` propague correctamente el prefijo a los hijos — debe funcionar, pero necesita
+prueba.
 
 ## Preguntas a resolver
 
