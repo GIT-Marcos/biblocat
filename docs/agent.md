@@ -28,16 +28,17 @@
 | Framework | Versión         | Propósito             |
 |-----------|-----------------|-----------------------|
 | JUnit     | 6.1.1 (Jupiter) | Tests unitarios       |
-| Mockito   | (por definir)   | Mocking de HttpClient |
+| Mockito   | 5.17.0          | Mocking de HttpClient |
 
 ### 1.4. Dependencias externas (fuera del JDK)
 
-| Dependencia                                  | Ámbito  | Justificación                                       |
-|----------------------------------------------|---------|-----------------------------------------------------|
-| `com.google.code.gson:gson:2.13.1`           | compile | Serializar/deserializar JSON en comunicación HTTP   |
-| `org.apache.logging.log4j:log4j-api:2.23.1`  | compile | API de logging                                      |
-| `org.apache.logging.log4j:log4j-core:2.23.1` | runtime | Implementación de Log4j (solo necesaria en runtime) |
-| `org.junit.jupiter:junit-jupiter:6.1.1`      | test    | Tests unitarios                                     |
+| Dependencia                                  | Ámbito  | Justificación                                                  |
+|----------------------------------------------|---------|----------------------------------------------------------------|
+| `com.google.code.gson:gson:2.13.1`           | compile | Serializar/deserializar JSON en comunicación HTTP              |
+| `org.apache.logging.log4j:log4j-api:2.23.1`  | compile | API de logging                                                 |
+| `org.apache.logging.log4j:log4j-core:2.23.1` | runtime | Implementación de Log4j (solo necesaria en runtime)            |
+| `org.junit.jupiter:junit-jupiter:6.1.1`      | test    | Tests unitarios                                                |
+| `org.mockito:mockito-junit-jupiter:5.17.0`   | test    | Extensión Mockito para JUnit Jupiter (`@Mock`, `@InjectMocks`) |
 
 ## 2. Sincronización
 
@@ -706,4 +707,37 @@ sequenceDiagram
 | `biblocat.agent.retry.backoff-seconds`         | int    | 2                       | Backoff inicial entre reintentos (se duplica en cada intento)                                                                         |
 | `biblocat.agent.shutdown.grace-period-seconds` | int    | 5                       | Tiempo de espera para shutdown graceful antes de forzar cierre                                                                        |
 
-## 5. Testing (Será definido cuando el código esté desarrollado)
+## 5. Testing
+
+### 5.1. Estrategia
+
+| Técnica               | Herramienta                     | Versión |
+|-----------------------|---------------------------------|---------|
+| Tests unitarios       | JUnit Jupiter                   | 6.1.1   |
+| Mocking de HttpClient | Mockito (mockito-junit-jupiter) | 5.17.0  |
+| Filesystem temporal   | `@TempDir`                      | JDK 21  |
+
+### 5.2. Clases de test y cobertura
+
+| Clase                      | Tests  | Categoría   | Estrategia                                      |
+|----------------------------|--------|-------------|-------------------------------------------------|
+| `ClassifierTest`           | 26     | Lógica pura | JUnit casuístico (A-H, EC39, orden, inferencia) |
+| `HasherTest`               | 9      | I/O         | `@TempDir` + JUnit                              |
+| `ScannerVisitorTest`       | 13     | I/O         | `@TempDir` + JUnit                              |
+| `ScannerTest`              | 4      | I/O         | `@TempDir` + JUnit                              |
+| `BatchingTest`             | 8      | Lógica pura | JUnit                                           |
+| `FileFormatTest`           | 10     | Lógica pura | JUnit                                           |
+| `ApiClientTest`            | 8      | HTTP        | Mockito + JUnit                                 |
+| `SenderTest`               | 12     | HTTP        | Mockito + JUnit                                 |
+| `ReconciliationRunnerTest` | 5      | Integración | Mockito + `@TempDir`                            |
+| **Total**                  | **95** |             |                                                 |
+
+### 5.3. Ejecución
+
+```bash
+./mvnw test              # Linux/macOS
+mvnw test                # Windows (cmd)
+.\mvnw.cmd test          # Windows (PowerShell)
+```
+
+Requiere Maven wrapper en `agent/mvnw`.
