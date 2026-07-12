@@ -1,0 +1,30 @@
+{
+  "configuration": {
+    "status": "WARN",
+    "name": "Agent",
+    "appenders": {
+      "Console": {
+        "name": "ConsoleAppender",
+        "target": "SYSTEM_OUT",
+        "PatternLayout": {
+          "pattern": "%d{ISO8601} [%t] %-5level %logger{36} - %msg%n"
+        }
+      }
+    },
+    "loggers": {
+      "root": {
+        "level": "info",
+        "appenderRef": {
+          "ref": "ConsoleAppender"
+        }
+      },
+      "logger": [
+        {
+          "name": "com.biblocat",
+          "level": "debug",
+          "additivity": false
+        }
+      ]
+    }
+  }
+}

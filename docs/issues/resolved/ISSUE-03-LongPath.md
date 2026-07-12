@@ -1,9 +1,10 @@
 # Issue: Prefijo `\\?\` en Windows para paths largos
 
-**Estado:** ❌ Abierto
+**Estado:** ✅ Cerrado
 **Severidad:** 🟩 1
 
-**Nota:** Pendiente de decidir entre NIO puro (sin `\\?\`) o soporte con APIs legacy. Diseño bifurcado en EC5.
+**Nota:** Resuelto verificando que el Agent usa NIO puro. La única llamada legacy (`File.canRead()`) fue reemplazada por
+`Files.isReadable()`.
 
 ## Contexto
 
@@ -11,6 +12,18 @@ La documentación actual (EC5) indica que para manejar paths que exceden el lím
 Windows, se debe prefijar el path con `\\?\`.
 
 Sin embargo, el uso de `\\?\` tiene implicaciones técnicas importantes que no están documentadas.
+
+## Solución
+
+El Agent usa exclusivamente NIO (Java 21). La única llamada a API legacy era
+`dir.toFile().canRead()` en `ScannerVisitor.java:73`, reemplazada por
+`Files.isReadable(dir)`. Con NIO puro, Java 21 soporta paths >260 caracteres
+nativamente sin necesidad del prefijo `\\?\`.
+
+**Archivos modificados:**
+
+- `agent/.../scanner/ScannerVisitor.java` — `dir.toFile().canRead()` → `Files.isReadable(dir)`
+- `docs/agent.md` — EC5 actualizado para reflejar NIO puro
 
 ## Problemas identificados
 
@@ -85,5 +98,30 @@ prueba.
 
 - Si se usa NIO puro: sin cambios en implementación, solo documentación.
 - Si se necesitan APIs legacy: agregar lógica de normalización de paths y pruebas.
+
+## Alternativas consideradas
+
+### Opción A — NIO puro (elegida)
+
+Reemplazar la única llamada legacy (`File.canRead()` → `Files.isReadable()`). El Agent queda 100% NIO.
+
+| Pros                      | Contras |
+|---------------------------|---------|
+| Cambio trivial (1 línea)  | Ninguna |
+| Sin riesgo de regresión   |         |
+| Sin lógica nueva de paths |         |
+
+### Opción B — Agregar soporte `\\?\`
+
+Implementar prefijo `\\?\` con manejo completo de `toRealPath()` + UNC paths.
+
+| Pros                             | Contras                               |
+|----------------------------------|---------------------------------------|
+| Soporte completo con APIs legacy | Complejidad alta, riesgo de regresión |
+
+## Consecuencias
+
+- Positivo: sin lógica adicional de paths, sin riesgo de romper normalización.
+- Sin impacto negativo.
 
 ## Referencias
