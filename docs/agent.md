@@ -741,3 +741,115 @@ mvnw test                # Windows (cmd)
 ```
 
 Requiere Maven wrapper en `agent/mvnw`.
+
+## 6. Deploy
+
+### 6.1. Prerrequisitos
+
+- **Java 21 JRE** instalado (verificar con `java -version`)
+- **API REST** de BiblioCat funcionando y accesible desde el equipo
+- **NSSM** (el script de instalación lo descarga automáticamente si no está presente)
+- Conexión HTTP entre el Agent y la API (puerto por defecto: 8080)
+
+### 6.2. Instalación automatizada (recomendada)
+
+El método principal de instalación es el script `install-agent.ps1`.
+
+**Qué hace el script:**
+
+1. Verifica que Java 21+ esté instalado. Si no, muestra mensaje con link de descarga y aborta.
+2. Verifica que NSSM esté disponible. Si no, lo descarga de nssm.cc y lo extrae a `%ProgramData%\BiblioCat\nssm\`.
+3. Pide al usuario:
+    - `root-dir`: ruta absoluta a la carpeta de la biblioteca a monitorear
+    - `api.base-url`: URL base de la API REST (default: `http://localhost:8080`)
+4. Genera `agent.properties` en `%ProgramData%\BiblioCat\agent\` con los valores ingresados.
+5. Instala el servicio Windows `BiblioCatAgent` con NSSM:
+    - Java + JAR como ejecutable
+    - Variable de entorno `BIBLOCAT_AGENT_CONFIG` apuntando al properties externo
+    - Logs de stdout/stderr en `%ProgramData%\BiblioCat\agent\logs\`
+    - Rotación automática de logs (10 MB por archivo, rotación diaria)
+    - Política de reinicio: 3 reintentos con backoff (10s, 30s, 60s)
+6. Inicia el servicio.
+7. Muestra resumen: estado del servicio, ubicación de logs, comandos útiles.
+
+**Uso:**
+
+```powershell
+.\install-agent.ps1
+```
+
+**Output esperado:**
+
+```
+✔ Java 21+ detectado en C:\Program Files\Java\jdk-21
+✔ NSSM disponible
+✔ Servicio BiblioCatAgent instalado y corriendo
+
+📄 Config: C:\ProgramData\BiblioCat\agent\agent.properties
+📁 Logs:   C:\ProgramData\BiblioCat\agent\logs\
+🔧 Admin:  nssm restart/stop/start BiblioCatAgent
+```
+
+### 6.3. Instalación manual (referencia)
+
+Para casos donde no se use el script o se requiera personalización.
+
+**Instalar el servicio:**
+
+```powershell
+nssm install BiblioCatAgent "C:\Program Files\Java\jdk-21\bin\java.exe" "-jar C:\Program Files\BiblioCat\Agent\agent-1.0-SNAPSHOT.jar"
+nssm set BiblioCatAgent AppDirectory "C:\Program Files\BiblioCat\Agent"
+nssm set BiblioCatAgent AppEnvironmentExtra BIBLOCAT_AGENT_CONFIG=C:\ProgramData\BiblioCat\agent\agent.properties
+nssm set BiblioCatAgent AppStdout "C:\ProgramData\BiblioCat\agent\logs\agent.log"
+nssm set BiblioCatAgent AppStderr "C:\ProgramData\BiblioCat\agent\logs\agent-error.log"
+nssm set BiblioCatAgent AppRotateFiles 1
+nssm set BiblioCatAgent AppRotateBytes 10485760
+nssm set BiblioCatAgent AppRotateOnline 1
+nssm set BiblioCatAgent AppExit Default Restart
+```
+
+**Gestionar el servicio:**
+
+```powershell
+nssm start   BiblioCatAgent
+nssm stop    BiblioCatAgent
+nssm restart BiblioCatAgent
+nssm status  BiblioCatAgent
+nssm edit    BiblioCatAgent       # GUI de configuración
+```
+
+Administrable también desde `services.msc` o cmdlets nativos: `Start-Service`, `Stop-Service`, `Restart-Service`,
+`Get-Service`.
+
+**Desinstalar:**
+
+```powershell
+nssm stop BiblioCatAgent
+nssm remove BiblioCatAgent confirm
+```
+
+### 6.4. Estructura de distribución
+
+```
+%ProgramFiles%\BiblioCat\Agent\
+└── agent-1.0-SNAPSHOT.jar
+
+%ProgramData%\BiblioCat\agent\
+├── agent.properties        ← Configuración (editable por el usuario)
+├── nssm\
+│   └── nssm.exe            ← Wrapper (descargado por el script)
+└── logs\
+    ├── agent.log            ← Logs del Agent (rotación automática)
+    └── agent-error.log      ← Salida de error
+```
+
+### 6.5. Edge cases de despliegue
+
+| #  | Caso                                                                                                                      | Comportamiento                                                                                                                                                                                                                                             |
+|----|---------------------------------------------------------------------------------------------------------------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| 45 | **Servicio inicia antes de que la API esté disponible** — el Agent arranca los executors inmediatamente                   | La primera reconciliación falla (`GET /api/sources/paths` agota reintentos). El Agent libera el `AtomicBoolean` y reintenta a los 300s. El log muestra errores de conexión hasta que la API responde. Impacto: bajo.                                       |
+| 46 | **Root-dir es un recurso de red que no está montado al iniciar** — unidad de red (`Z:\`) o recurso UNC (`\\server\share`) | `AgentConfig.load()` valida que el directorio exista. Si no existe, lanza `ConfigurationException` → `System.exit(1)`. NSSM detecta el exit code y aplica la política de reinicio. Si el recurso no se monta tras los reintentos, NSSM deja de reintentar. |
+| 47 | **Permisos del servicio** — el servicio corre como `LocalSystem` vs un usuario específico                                 | `LocalSystem` no tiene acceso a unidades de red montadas bajo sesión de usuario. Solución: configurar el servicio para correr como un usuario específico con `nssm set BiblioCatAgent ObjectName "DOMINIO\usuario" contraseña`.                            |
+| 48 | **Redirección de logs por NSSM** — NSSM captura `stdout`/`stderr` del JVM                                                 | Log4j2 escribe a `System.out` (Console appender). NSSM redirige ese flujo a `agent.log`. No hay doble escritura. Si se agrega un File appender a Log4j2 en el futuro, no hay conflicto — NSSM captura solo stdout.                                         |
+| 49 | **Firewall bloqueando HTTP a localhost** — el Agent se comunica con la API en `http://localhost:8080`                     | Windows no bloquea loopback por defecto. Si hay firewall de terceros restrictivo, debe permitir `java.exe` para conexiones salientes a `localhost:8080`.                                                                                                   |
+| 50 | **Actualización del Agent** — reemplazar el JAR mientras el servicio corre                                                | Detener el servicio (`nssm stop`), reemplazar el JAR, reiniciar (`nssm start`). Config (`agent.properties`) y logs se preservan. No requiere migración.                                                                                                    |
