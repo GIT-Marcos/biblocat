@@ -1,9 +1,5 @@
 package com.biblocat.reconcil;
 
-import java.nio.file.Files;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.atomic.AtomicBoolean;
-
 import com.biblocat.batching.Batching;
 import com.biblocat.classifier.Classifier;
 import com.biblocat.client.ApiClient;
@@ -14,6 +10,11 @@ import com.biblocat.sender.Sender;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.nio.file.Files;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
+
 public class ReconciliationRunner implements Runnable {
 
     private static final Logger LOG = LogManager.getLogger(ReconciliationRunner.class);
@@ -23,6 +24,7 @@ public class ReconciliationRunner implements Runnable {
     private final Sender sender;
     private final Hasher hasher;
     private final AtomicBoolean reconciliationInProgress;
+    private volatile CountDownLatch completionLatch = new CountDownLatch(0);
 
     public ReconciliationRunner(
             AgentConfig config,
@@ -38,6 +40,10 @@ public class ReconciliationRunner implements Runnable {
         this.reconciliationInProgress = reconciliationInProgress;
     }
 
+    public CountDownLatch getCompletionLatch() {
+        return completionLatch;
+    }
+
     @Override
     public void run() {
         runReconciliation();
@@ -51,6 +57,9 @@ public class ReconciliationRunner implements Runnable {
      *         or aborted due to root directory disappearance
      */
     public boolean runReconciliation() {
+        var latch = new CountDownLatch(1);
+        completionLatch = latch;
+
         if (!reconciliationInProgress.compareAndSet(false, true)) {
             LOG.debug("Reconciliation already in progress, skipping");
             return false;
@@ -97,6 +106,7 @@ public class ReconciliationRunner implements Runnable {
             var elapsedMs = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startNanos);
             LOG.info("Reconciliation finished ({} ms)", elapsedMs);
             reconciliationInProgress.set(false);
+            latch.countDown();
         }
     }
 }

@@ -39,82 +39,82 @@ public class App {
             var reconciliationInProgress = new AtomicBoolean(false);
             var runner = new ReconciliationRunner(config, apiClient, sender, hasher, reconciliationInProgress);
 
-            var scheduler = Executors.newSingleThreadScheduledExecutor(r -> {
-                var t = new Thread(r, "scheduler");
-                t.setDaemon(true);
-                return t;
+            try (var scheduler = Executors.newSingleThreadScheduledExecutor(r -> {
+                return new Thread(r, "scheduler");
             });
-            var poller = Executors.newSingleThreadScheduledExecutor(r -> {
-                var t = new Thread(r, "poller");
-                t.setDaemon(true);
-                return t;
-            });
+                 var poller = Executors.newSingleThreadScheduledExecutor(r -> {
+                     return new Thread(r, "poller");
+                 })) {
 
-            // §3.3 step 1: register shutdown hook before starting executors
-            Runtime.getRuntime().addShutdownHook(new Thread(() -> {
-                LOG.info("Shutdown hook triggered");
+                // §3.3 step 1: register shutdown hook before starting executors
+                Runtime.getRuntime().addShutdownHook(new Thread(() -> {
+                    LOG.info("Shutdown hook triggered");
 
-                scheduler.shutdown();
-                poller.shutdown();
+                    scheduler.shutdown();
+                    poller.shutdown();
 
-                if (reconciliationInProgress.get()) {
-                    var deadline = System.currentTimeMillis()
-                            + config.shutdownGracePeriodSeconds() * 1000L;
-                    while (reconciliationInProgress.get() && System.currentTimeMillis() < deadline) {
+                    if (reconciliationInProgress.get()) {
                         try {
-                            Thread.sleep(100);
+                            boolean completed = runner.getCompletionLatch()
+                                    .await(config.shutdownGracePeriodSeconds(), TimeUnit.SECONDS);
+                            if (!completed) {
+                                LOG.warn("Grace period exceeded, forcing shutdown");
+                            }
                         } catch (InterruptedException e) {
                             Thread.currentThread().interrupt();
-                            break;
                         }
                     }
+
+                    scheduler.shutdownNow();
+                    poller.shutdownNow();
+                    hasher.shutdown();
+                    httpClient.close();
+
+                    LOG.info("Shutdown complete");
+                }));
+
+                // §3.3 step 2: cleanup orphan pending flag (EC44)
+                try {
+                    apiClient.postAck();
+                } catch (Exception e) {
+                    LOG.warn("Startup ACK failed: {}", e.getMessage());
                 }
 
-                scheduler.shutdownNow();
-                poller.shutdownNow();
-                hasher.shutdown();
-                httpClient.close();
+                // §3.3 step 3: start scheduler (immediate first execution)
+                scheduler.scheduleWithFixedDelay(
+                        runner,
+                        0,
+                        config.scanPeriodSeconds(),
+                        TimeUnit.SECONDS
+                );
 
-                LOG.info("Shutdown complete");
-            }));
-
-            // §3.3 step 2: cleanup orphan pending flag (EC44)
-            try {
-                apiClient.postAck();
-            } catch (Exception e) {
-                LOG.warn("Startup ACK failed: {}", e.getMessage());
-            }
-
-            // §3.3 step 3: start scheduler (immediate first execution)
-            scheduler.scheduleWithFixedDelay(
-                    runner,
-                    0,
-                    config.scanPeriodSeconds(),
-                    TimeUnit.SECONDS
-            );
-
-            // §3.3 step 4: start poller (immediate first execution)
-            poller.scheduleWithFixedDelay(
-                    () -> {
-                        try {
-                            var pending = apiClient.getPending();
-                            if (pending.pending()) {
-                                if (runner.runReconciliation()) {
-                                    apiClient.postAck();
-                                } else {
-                                    LOG.debug("Manual reconciliation deferred: lock contested");
+                // §3.3 step 4: start poller (immediate first execution)
+                poller.scheduleWithFixedDelay(
+                        () -> {
+                            try {
+                                var pending = apiClient.getPending();
+                                if (pending.pending()) {
+                                    if (runner.runReconciliation()) {
+                                        apiClient.postAck();
+                                    } else {
+                                        LOG.debug("Manual reconciliation deferred: lock contested");
+                                    }
                                 }
+                            } catch (Exception e) {
+                                LOG.error("Polling cycle failed: {}", e.getMessage(), e);
                             }
-                        } catch (Exception e) {
-                            LOG.error("Polling cycle failed: {}", e.getMessage(), e);
-                        }
-                    },
-                    0,
-                    config.pollIntervalSeconds(),
-                    TimeUnit.SECONDS
-            );
+                        },
+                        0,
+                        config.pollIntervalSeconds(),
+                        TimeUnit.SECONDS
+                );
 
-            LOG.info("Agent started successfully");
+                LOG.info("Agent started successfully");
+
+                scheduler.awaitTermination(Long.MAX_VALUE, TimeUnit.NANOSECONDS);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+            }
 
         } catch (ConfigurationException e) {
             LOG.fatal(e.getMessage());
