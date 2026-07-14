@@ -1,0 +1,429 @@
+<#
+.SYNOPSIS
+  Instala o desinstala el Agent de BiblioCat como servicio Windows.
+
+.DESCRIPTION
+  Automatiza la configuración del Agent: verifica Java 21+, descarga NSSM si es
+  necesario, genera agent.properties, instala el servicio BiblioCatAgent con
+  NSSM y lo inicia.
+
+  Ejecutar como Administrador. Si no, el script se auto-eleva.
+
+.PARAMETER RootDir
+  Ruta absoluta al directorio raíz de la biblioteca. Si se omite, se pide
+  interactivamente.
+
+.PARAMETER ApiBaseUrl
+  URL base de la API REST. Si se omite, se pide interactivamente
+  (default: http://localhost:8080).
+
+.PARAMETER JarPath
+  Ruta al JAR del Agent. Default: .\agent-1.0-SNAPSHOT.jar (junto al script).
+
+.PARAMETER Uninstall
+  Detiene y remueve el servicio BiblioCatAgent. No elimina config ni logs.
+
+.EXAMPLE
+  .\install-agent.ps1                                        # interactivo
+  .\install-agent.ps1 -RootDir "D:\Biblioteca"               # semi-automatizado
+  .\install-agent.ps1 -RootDir "D:\Biblioteca" -ApiBaseUrl "http://api:8080"  # automatizado
+  .\install-agent.ps1 -Uninstall                             # desinstalar
+#>
+
+param(
+    [string]$RootDir,
+    [string]$ApiBaseUrl,
+    [string]$JarPath = "$PSScriptRoot\agent-1.0-SNAPSHOT.jar",
+    [switch]$Uninstall
+)
+
+$ErrorActionPreference = "Stop"
+
+# ─── Constantes ───────────────────────────────────────────────────────────────
+
+$ServiceName = "BiblioCatAgent"
+$ProgramFilesDir = "$env:ProgramFiles\BiblioCat\Agent"
+$ProgramDataDir = "$env:ProgramData\BiblioCat\agent"
+$LogsDir = "$ProgramDataDir\logs"
+$NssmDir = "$env:ProgramData\BiblioCat\nssm"
+$NssmExe = "$NssmDir\nssm.exe"
+$NssmUrl = "https://nssm.cc/release/nssm-2.24.zip"
+$NssmZip = "$env:TEMP\nssm-2.24.zip"
+$PropertiesFile = "$ProgramDataDir\agent.properties"
+
+# ─── Auto-elevación ───────────────────────────────────────────────────────────
+
+function Assert-Administrator
+{
+    $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
+    $principal = [Security.Principal.WindowsPrincipal]$identity
+    if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator))
+    {
+        Write-Host "⚡ El script requiere permisos de Administrador. Relanzando..." -ForegroundColor Yellow
+        $arguments = "-NoProfile -ExecutionPolicy Bypass -File `"$PSCommandPath`""
+        if ($RootDir)
+        {
+            $arguments += " -RootDir `"$RootDir`""
+        }
+        if ($ApiBaseUrl)
+        {
+            $arguments += " -ApiBaseUrl `"$ApiBaseUrl`""
+        }
+        $arguments += " -JarPath `"$JarPath`""
+        if ($Uninstall)
+        {
+            $arguments += " -Uninstall"
+        }
+
+        $psi = New-Object Diagnostics.ProcessStartInfo
+        $psi.FileName = "powershell.exe"
+        $psi.Arguments = $arguments
+        $psi.Verb = "runas"
+        $psi.WindowStyle = [Diagnostics.ProcessWindowStyle]::Normal
+
+        try
+        {
+            $proc = [Diagnostics.Process]::Start($psi)
+            $proc.WaitForExit()
+            exit $proc.ExitCode
+        }
+        catch
+        {
+            Write-Host "✘ No se pudo elevar a Administrador. Ejecutá el script como Admin manualmente." -ForegroundColor Red
+            exit 1
+        }
+    }
+}
+
+# ─── Funciones auxiliares ─────────────────────────────────────────────────────
+
+function Read-Parameters
+{
+    if (-not $RootDir)
+    {
+        $RootDir = Read-Host "📁 Ruta absoluta al directorio raíz de la biblioteca"
+        $RootDir = $RootDir.Trim()
+        if (-not $RootDir)
+        {
+            Write-Host "✘ El directorio raíz es obligatorio." -ForegroundColor Red
+            exit 1
+        }
+    }
+    if (-not (Test-Path -LiteralPath $RootDir -PathType Container))
+    {
+        Write-Host "✘ El directorio '$RootDir' no existe. Verificá la ruta." -ForegroundColor Red
+        exit 1
+    }
+    $script:RootDir = $RootDir
+
+    if (-not $ApiBaseUrl)
+    {
+        $userInput = Read-Host "🔗 URL base de la API REST (Enter para default: http://localhost:8080)"
+        $script:ApiBaseUrl = if ( [string]::IsNullOrWhiteSpace($userInput))
+        {
+            "http://localhost:8080"
+        }
+        else
+        {
+            $userInput.Trim()
+        }
+    }
+    else
+    {
+        $script:ApiBaseUrl = $ApiBaseUrl
+    }
+}
+
+function Test-Java21($javaExe)
+{
+    if (-not $javaExe)
+    {
+        Write-Host "✘ No se pudo ubicar java.exe en PATH ni en ubicaciones comunes." -ForegroundColor Red
+        Write-Host "  Descargalo desde https://adoptium.net/" -ForegroundColor Yellow
+        return $false
+    }
+
+    try
+    {
+        $version = & $javaExe -version 2>&1
+        if ($version -match '"(?:1\.)?(\d+)')
+        {
+            $major = [int]$Matches[1]
+            if ($major -ge 21)
+            {
+                Write-Host "✔ Java $major+ detectado en $javaExe" -ForegroundColor Green
+                return $true
+            }
+        }
+        Write-Host "✘ Se requiere Java 21+. Versión detectada: $( $version[0] )" -ForegroundColor Red
+        Write-Host "  en $javaExe" -ForegroundColor Red
+        Write-Host "  Descargalo desde https://adoptium.net/" -ForegroundColor Yellow
+        return $false
+    }
+    catch
+    {
+        Write-Host "✘ Error al ejecutar java.exe: $( $_.Exception.Message )" -ForegroundColor Red
+        Write-Host "  Descargalo desde https://adoptium.net/" -ForegroundColor Yellow
+        return $false
+    }
+}
+
+function Resolve-JavaExe
+{
+    # Busca java.exe primero en PATH, después en locations comunes de JDK 21
+    $javaExe = (Get-Command "java" -ErrorAction SilentlyContinue).Source
+    if ($javaExe)
+    {
+        return $javaExe
+    }
+
+    $candidates = @(
+        "$env:ProgramFiles\Java\jdk-21\bin\java.exe",
+        "$env:ProgramFiles\Eclipse Adoptium\jdk-*-hotspot\bin\java.exe",
+        "$env:ProgramFiles\Amazon Corretto\jdk1.*\bin\java.exe",
+        "${env:ProgramFiles(x86)}\Java\jdk-21\bin\java.exe"
+    )
+    foreach ($pattern in $candidates)
+    {
+        $match = Resolve-Path $pattern -ErrorAction SilentlyContinue
+        if ($match)
+        {
+            return $match.Path
+        }
+    }
+    return $null
+}
+
+function Assert-NssmExists
+{
+    if (Test-Path -LiteralPath $NssmExe -PathType Leaf)
+    {
+        Write-Host "✔ NSSM disponible en $NssmExe" -ForegroundColor Green
+        return
+    }
+
+    Write-Host "⬇ Descargando NSSM desde nssm.cc..." -ForegroundColor Yellow
+    try
+    {
+        Invoke-WebRequest -Uri $NssmUrl -OutFile $NssmZip -UseBasicParsing
+        $null = New-Item -ItemType Directory -Path $NssmDir -Force
+
+        Add-Type -AssemblyName System.IO.Compression.FileSystem
+        [System.IO.Compression.ZipFile]::ExtractToDirectory($NssmZip, $env:TEMP)
+        $extractedNssm = Get-ChildItem -Path "$env:TEMP\nssm-*\win64\nssm.exe" | Select-Object -First 1
+        if (-not $extractedNssm)
+        {
+            throw "No se encontró nssm.exe en el ZIP descargado."
+        }
+        Copy-Item -LiteralPath $extractedNssm.FullName -Destination $NssmExe -Force
+        Remove-Item -Path $NssmZip -Force -ErrorAction SilentlyContinue
+        Write-Host "✔ NSSM instalado en $NssmExe" -ForegroundColor Green
+    }
+    catch
+    {
+        Write-Host "✘ Error al descargar/instalar NSSM: $_" -ForegroundColor Red
+        exit 1
+    }
+}
+
+function Test-JarExists
+{
+    if (-not (Test-Path -LiteralPath $JarPath -PathType Leaf))
+    {
+        Write-Host "✘ No se encuentra el JAR en '$JarPath'." -ForegroundColor Red
+        Write-Host "  Construilo primero con: .\mvnw package" -ForegroundColor Yellow
+        Write-Host "  O pasá la ruta correcta con -JarPath" -ForegroundColor Yellow
+        exit 1
+    }
+    Write-Host "✔ JAR encontrado: $JarPath" -ForegroundColor Green
+}
+
+function New-AgentDirectories
+{
+    $null = New-Item -ItemType Directory -Path $ProgramFilesDir -Force
+    $null = New-Item -ItemType Directory -Path $ProgramDataDir -Force
+    $null = New-Item -ItemType Directory -Path $LogsDir -Force
+}
+
+function New-AgentProperties
+{
+    $content = @"
+biblocat.agent.scan.root-dir=$RootDir
+biblocat.agent.api.base-url=$ApiBaseUrl
+biblocat.agent.scan.period-seconds=300
+biblocat.agent.scan.max-depth=10
+biblocat.agent.poll.interval-seconds=30
+biblocat.agent.hash.timeout-seconds=30
+biblocat.agent.hash.max-file-size-mb=500
+biblocat.agent.hash.max-retries=3
+biblocat.agent.batch.size=50
+biblocat.agent.retry.max-attempts=3
+biblocat.agent.retry.backoff-seconds=2
+biblocat.agent.shutdown.grace-period-seconds=5
+"@
+    Set-Content -Path $PropertiesFile -Value $content -Encoding ASCII
+    Write-Host "✔ Configuración generada en $PropertiesFile" -ForegroundColor Green
+}
+
+function Copy-Jar
+{
+    $destJar = "$ProgramFilesDir\agent-1.0-SNAPSHOT.jar"
+    Copy-Item -LiteralPath $JarPath -Destination $destJar -Force
+    Write-Host "✔ JAR copiado a $destJar" -ForegroundColor Green
+    return $destJar
+}
+
+function Install-Service
+{
+    $javaExe = Resolve-JavaExe
+    if (-not $javaExe)
+    {
+        Write-Host "✘ No se pudo ubicar java.exe." -ForegroundColor Red
+        exit 1
+    }
+
+    $destJar = "$ProgramFilesDir\agent-1.0-SNAPSHOT.jar"
+    $appParameters = "-jar `"$destJar`""
+
+    & $NssmExe install $ServiceName "`"$javaExe`"" $appParameters 2>&1 | Out-Null
+    if ($LASTEXITCODE -ne 0)
+    {
+        Write-Host "✘ Error al instalar el servicio con NSSM (exit code: $LASTEXITCODE)" -ForegroundColor Red
+        exit 1
+    }
+
+    $nssmOps = @(
+        @("set", $ServiceName, "AppDirectory", "`"$ProgramFilesDir`""),
+        @("set", $ServiceName, "AppEnvironmentExtra", "BIBLOCAT_AGENT_CONFIG=$PropertiesFile"),
+        @("set", $ServiceName, "AppStdout", "`"$LogsDir\agent.log`""),
+        @("set", $ServiceName, "AppStderr", "`"$LogsDir\agent-error.log`""),
+        @("set", $ServiceName, "AppRotateFiles", "1"),
+        @("set", $ServiceName, "AppRotateBytes", "10485760"),
+        @("set", $ServiceName, "AppRotateSeconds", "86400"),
+        @("set", $ServiceName, "AppRotateOnline", "1"),
+        @("set", $ServiceName, "AppExit", "Default", "Restart")
+    )
+
+    foreach ($op in $nssmOps)
+    {
+        & $NssmExe $op 2>&1 | Out-Null
+        if ($LASTEXITCODE -ne 0)
+        {
+            Write-Host "⚠  Falló nssm $( $op -join ' ' ) (exit code: $LASTEXITCODE)" -ForegroundColor Yellow
+        }
+    }
+
+    Write-Host "✔ Servicio '$ServiceName' instalado" -ForegroundColor Green
+}
+
+function Start-Service
+{
+    & $NssmExe start $ServiceName 2>&1 | Out-Null
+    $status = & $NssmExe status $ServiceName 2>&1
+    if ($LASTEXITCODE -eq 0 -and $status -match "SERVICE_RUNNING")
+    {
+        Write-Host "✔ Servicio '$ServiceName' iniciado" -ForegroundColor Green
+    }
+    else
+    {
+        Write-Host "⚠  El servicio se instaló pero no se pudo iniciar: $status" -ForegroundColor Yellow
+        Write-Host "  Revisá los logs en $LogsDir" -ForegroundColor Yellow
+    }
+}
+
+function Show-Summary
+{
+    $status = & $NssmExe status $ServiceName 2>&1
+    Write-Host ""
+    Write-Host "═══════════════════════════════════════════" -ForegroundColor Cyan
+    Write-Host "  BiblioCat Agent — instalación completada" -ForegroundColor Cyan
+    Write-Host "═══════════════════════════════════════════" -ForegroundColor Cyan
+    Write-Host "  Servicio:   $ServiceName"
+    Write-Host "  Estado:     $status"
+    Write-Host "  JAR:        $ProgramFilesDir\agent-1.0-SNAPSHOT.jar"
+    Write-Host "  Config:     $PropertiesFile"
+    Write-Host "  Logs:       $LogsDir"
+    Write-Host "  Root dir:   $RootDir"
+    Write-Host "  API URL:    $ApiBaseUrl"
+    Write-Host ""
+    Write-Host "  Comandos útiles:" -ForegroundColor Cyan
+    Write-Host "    nssm start      $ServiceName"
+    Write-Host "    nssm stop       $ServiceName"
+    Write-Host "    nssm restart    $ServiceName"
+    Write-Host "    nssm status     $ServiceName"
+    Write-Host "    nssm edit       $ServiceName"
+    Write-Host "    Get-Service     $ServiceName"
+    Write-Host "═══════════════════════════════════════════" -ForegroundColor Cyan
+}
+
+function Stop-Service
+{
+    $status = & $NssmExe status $ServiceName 2>&1
+    if ($status -match "SERVICE_RUNNING|SERVICE_PAUSED")
+    {
+        Write-Host "⏹ Deteniendo servicio '$ServiceName'..." -ForegroundColor Yellow
+        & $NssmExe stop $ServiceName 2>&1 | Out-Null
+        Start-Sleep -Seconds 2
+        Write-Host "✔ Servicio detenido" -ForegroundColor Green
+    }
+}
+
+function Uninstall-Service
+{
+    Stop-Service
+    & $NssmExe remove $ServiceName confirm 2>&1 | Out-Null
+    if ($LASTEXITCODE -eq 0)
+    {
+        Write-Host "✔ Servicio '$ServiceName' removido" -ForegroundColor Green
+        Write-Host "  (no se eliminaron config ni logs en $ProgramDataDir)" -ForegroundColor Yellow
+    }
+    else
+    {
+        Write-Host "⚠  Error al remover el servicio (exit code: $LASTEXITCODE)" -ForegroundColor Yellow
+    }
+}
+
+# ─── Main ──────────────────────────────────────────────────────────────────────
+
+function Main
+{
+    Assert-Administrator
+
+    if ($Uninstall)
+    {
+        Uninstall-Service
+        exit 0
+    }
+
+    Write-Host "╔══════════════════════════════════════════╗" -ForegroundColor Cyan
+    Write-Host "║    BiblioCat Agent — Instalación         ║" -ForegroundColor Cyan
+    Write-Host "╚══════════════════════════════════════════╝" -ForegroundColor Cyan
+    Write-Host ""
+
+    # 1. Parámetros
+    Read-Parameters
+
+    # 2. Prerrequisitos
+    $javaExe = Resolve-JavaExe
+    $ok = Test-Java21 $javaExe
+    if (-not $ok)
+    {
+        exit 1
+    }
+
+    Assert-NssmExists
+    Test-JarExists
+
+    # 3. Instalación
+    Write-Host "  Instalando Agent..." -ForegroundColor Yellow
+    New-AgentDirectories
+    New-AgentProperties
+    Copy-Jar | Out-Null
+    Install-Service
+    Start-Service
+
+    # 4. Resumen
+    Show-Summary
+}
+
+Main

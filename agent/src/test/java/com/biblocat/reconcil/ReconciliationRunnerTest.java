@@ -1,14 +1,5 @@
 package com.biblocat.reconcil;
 
-import static org.junit.jupiter.api.Assertions.*;
-import static org.mockito.ArgumentMatchers.*;
-import static org.mockito.Mockito.*;
-
-import java.nio.file.Files;
-import java.nio.file.Path;
-import java.util.List;
-import java.util.concurrent.atomic.AtomicBoolean;
-
 import com.biblocat.client.ApiClient;
 import com.biblocat.config.AgentConfig;
 import com.biblocat.hasher.Hasher;
@@ -18,6 +9,16 @@ import org.junit.jupiter.api.io.TempDir;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoSettings;
 import org.mockito.quality.Strictness;
+
+import java.nio.file.Files;
+import java.nio.file.Path;
+import java.util.List;
+import java.util.concurrent.atomic.AtomicBoolean;
+
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.ArgumentMatchers.anyList;
+import static org.mockito.Mockito.*;
 
 @MockitoSettings(strictness = Strictness.LENIENT)
 class ReconciliationRunnerTest {
@@ -36,7 +37,7 @@ class ReconciliationRunnerTest {
         var config = config(tempDir);
         var hasher = new Hasher(tempDir, 30, 500, 3);
         var lock = new AtomicBoolean(false);
-        var runner = new ReconciliationRunner(config, apiClient, sender, hasher, lock);
+        var runner = new ReconciliationRunner(config, apiClient, sender, hasher, lock, tempDir);
 
         when(apiClient.getPaths()).thenReturn(List.of());
 
@@ -52,7 +53,7 @@ class ReconciliationRunnerTest {
         var config = config(tempDir);
         var hasher = new Hasher(tempDir, 30, 500, 3);
         var lock = new AtomicBoolean(true); // lock already held
-        var runner = new ReconciliationRunner(config, apiClient, sender, hasher, lock);
+        var runner = new ReconciliationRunner(config, apiClient, sender, hasher, lock, tempDir);
 
         var result = runner.runReconciliation();
 
@@ -65,7 +66,7 @@ class ReconciliationRunnerTest {
         var config = config(tempDir);
         var hasher = new Hasher(tempDir, 30, 500, 3);
         var lock = new AtomicBoolean(false);
-        var runner = new ReconciliationRunner(config, apiClient, sender, hasher, lock);
+        var runner = new ReconciliationRunner(config, apiClient, sender, hasher, lock, tempDir);
 
         // ApiClient throws → pipeline fails
         when(apiClient.getPaths()).thenThrow(new RuntimeException("API unreachable"));
@@ -81,7 +82,7 @@ class ReconciliationRunnerTest {
         var config = config(tempDir);
         var hasher = new Hasher(tempDir, 30, 500, 3);
         var lock = new AtomicBoolean(false);
-        var runner = new ReconciliationRunner(config, apiClient, sender, hasher, lock);
+        var runner = new ReconciliationRunner(config, apiClient, sender, hasher, lock, tempDir);
 
         when(apiClient.getPaths()).thenThrow(new RuntimeException("fail"));
 
@@ -97,7 +98,7 @@ class ReconciliationRunnerTest {
         var config = config(tempDir);
         var hasher = new Hasher(tempDir, 30, 500, 3);
         var lock = new AtomicBoolean(false);
-        var runner = new ReconciliationRunner(config, apiClient, sender, hasher, lock);
+        var runner = new ReconciliationRunner(config, apiClient, sender, hasher, lock, tempDir);
 
         when(apiClient.getPaths()).thenReturn(List.of());
 

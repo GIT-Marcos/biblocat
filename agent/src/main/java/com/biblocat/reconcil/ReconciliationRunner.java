@@ -11,6 +11,7 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -23,6 +24,7 @@ public class ReconciliationRunner implements Runnable {
     private final ApiClient apiClient;
     private final Sender sender;
     private final Hasher hasher;
+    private final Path rootDir;
     private final AtomicBoolean reconciliationInProgress;
     private volatile CountDownLatch completionLatch = new CountDownLatch(0);
 
@@ -31,13 +33,15 @@ public class ReconciliationRunner implements Runnable {
             ApiClient apiClient,
             Sender sender,
             Hasher hasher,
-            AtomicBoolean reconciliationInProgress
+            AtomicBoolean reconciliationInProgress,
+            Path rootDir
     ) {
         this.config = config;
         this.apiClient = apiClient;
         this.sender = sender;
         this.hasher = hasher;
         this.reconciliationInProgress = reconciliationInProgress;
+        this.rootDir = rootDir;
     }
 
     public CountDownLatch getCompletionLatch() {
@@ -72,11 +76,11 @@ public class ReconciliationRunner implements Runnable {
 
             var knownSources = apiClient.getPaths();
 
-            var scanned = Scanner.scan(config.rootDir(), config.scanMaxDepth());
+            var scanned = Scanner.scan(rootDir, config.scanMaxDepth());
             LOG.info("Scanned {} files", scanned.size());
 
-            if (!Files.exists(config.rootDir()) || !Files.isReadable(config.rootDir())) {
-                LOG.error("Root directory not accessible, aborting reconciliation");
+            if (!Files.exists(rootDir) || !Files.isReadable(rootDir)) {
+                LOG.error("Root directory '{}' not accessible, aborting reconciliation", rootDir);
                 return false;
             }
 
@@ -100,7 +104,8 @@ public class ReconciliationRunner implements Runnable {
             return true;
 
         } catch (Exception e) {
-            LOG.error("Reconciliation failed: {}", e.getMessage(), e);
+            LOG.error("Reconciliation failed: {}. Will retry in {} seconds.",
+                    e.getMessage(), config.scanPeriodSeconds(), e);
             return false;
         } finally {
             var elapsedMs = TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - startNanos);

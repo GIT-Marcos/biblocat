@@ -80,18 +80,7 @@ public record AgentConfig(
         if (rootDir == null || rootDir.isBlank()) {
             throw new ConfigurationException("biblocat.agent.scan.root-dir is required but not configured");
         }
-        var path = Paths.get(rootDir);
-        if (!Files.exists(path)) {
-            throw new ConfigurationException("Root directory does not exist: " + rootDir);
-        }
-        if (!Files.isDirectory(path)) {
-            throw new ConfigurationException("Root path is not a directory: " + rootDir);
-        }
-        try {
-            return path.toRealPath();
-        } catch (IOException e) {
-            throw new ConfigurationException("Failed to resolve root directory real path: " + rootDir, e);
-        }
+        return Paths.get(rootDir.strip());
     }
 
     private static String getString(Properties props, String key, String defaultValue) {

@@ -9,7 +9,10 @@ import com.biblocat.sender.Sender;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.io.IOException;
 import java.net.http.HttpClient;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.time.Duration;
 import java.util.concurrent.Executors;
 import java.util.concurrent.TimeUnit;
@@ -24,27 +27,31 @@ public class App {
             var config = AgentConfig.load();
             logConfig(config);
 
+            var rootDir = waitForRootDir(config.rootDir());
+
             var httpClient = HttpClient.newBuilder()
                     .connectTimeout(Duration.ofSeconds(10))
                     .build();
 
             var apiClient = new ApiClient(httpClient, config);
+
+            waitForApi(apiClient, config);
+
             var sender = new Sender(httpClient, config);
             var hasher = new Hasher(
-                    config.rootDir(),
+                    rootDir,
                     config.hashTimeoutSeconds(),
                     config.hashMaxFileSizeMb(),
                     config.hashMaxRetries()
             );
             var reconciliationInProgress = new AtomicBoolean(false);
-            var runner = new ReconciliationRunner(config, apiClient, sender, hasher, reconciliationInProgress);
+            var runner = new ReconciliationRunner(config, apiClient, sender, hasher, reconciliationInProgress, rootDir);
 
-            try (var scheduler = Executors.newSingleThreadScheduledExecutor(r -> {
-                return new Thread(r, "scheduler");
-            });
-                 var poller = Executors.newSingleThreadScheduledExecutor(r -> {
-                     return new Thread(r, "poller");
-                 })) {
+            try (var scheduler = Executors.newSingleThreadScheduledExecutor(
+                    r -> new Thread(r, "scheduler"));
+
+                 var poller = Executors.newSingleThreadScheduledExecutor(
+                         r -> new Thread(r, "poller"))) {
 
                 // §3.3 step 1: register shutdown hook before starting executors
                 Runtime.getRuntime().addShutdownHook(new Thread(() -> {
@@ -117,7 +124,8 @@ public class App {
             }
 
         } catch (ConfigurationException e) {
-            LOG.fatal(e.getMessage());
+            LOG.fatal("Agent configuration failed: {}", e.getMessage());
+            LOG.fatal("Check agent.properties and verify root-dir is correct.");
             System.exit(1);
         }
     }
@@ -135,5 +143,62 @@ public class App {
         LOG.info("retry.backoff-seconds: {}", config.retryBackoffSeconds());
         LOG.info("shutdown.grace-period-seconds: {}", config.shutdownGracePeriodSeconds());
         LOG.info("api.base-url: {}", config.apiBaseUrl());
+    }
+
+    private static Path waitForRootDir(Path rootDir) {
+        var maxAttempts = 3;
+        var baseBackoff = 5;
+        for (var attempt = 0; attempt <= maxAttempts; attempt++) {
+            if (Files.exists(rootDir) && Files.isDirectory(rootDir)) {
+                try {
+                    return rootDir.toRealPath();
+                } catch (IOException e) {
+                    LOG.warn("Could not resolve real path for '{}', using as-is", rootDir);
+                    return rootDir;
+                }
+            }
+            if (attempt < maxAttempts) {
+                var backoff = baseBackoff * (1 << attempt);
+                LOG.warn("Root directory '{}' not found. Retrying in {}s...", rootDir, backoff);
+                sleepSeconds(backoff);
+            }
+        }
+        LOG.fatal("Root directory '{}' does not exist after {} attempts. " +
+                        "Verify the path exists and the network drive is mounted. Aborting.",
+                rootDir, maxAttempts + 1);
+        System.exit(1);
+        return rootDir;
+    }
+
+    private static void waitForApi(ApiClient apiClient, AgentConfig config) {
+        var maxSecs = 60;
+        var waited = 0;
+        while (true) {
+            try {
+                apiClient.getPending();
+                LOG.info("API reachable at {}", config.apiBaseUrl());
+                return;
+            } catch (Exception e) {
+                var backoff = Math.min(waited == 0 ? 5 : waited * 2, 15);
+                waited += backoff;
+                if (waited >= maxSecs) {
+                    break;
+                }
+                LOG.warn("API not reachable at {}, retrying in {}s... (waited {}s)",
+                        config.apiBaseUrl(), backoff, waited);
+                sleepSeconds(backoff);
+            }
+        }
+        LOG.warn("API not reachable at {} after {}s. Agent will retry in {}s via the scheduler.",
+                config.apiBaseUrl(), maxSecs, config.scanPeriodSeconds());
+    }
+
+    private static void sleepSeconds(int seconds) {
+        try {
+            Thread.sleep(Duration.ofSeconds(seconds));
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new ConfigurationException("Interrupted during startup wait");
+        }
     }
 }
