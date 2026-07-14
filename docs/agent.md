@@ -763,14 +763,15 @@ El método principal de instalación es el script `install-agent.ps1`.
     - `root-dir`: ruta absoluta a la carpeta de la biblioteca a monitorear
     - `api.base-url`: URL base de la API REST (default: `http://localhost:8080`)
 4. Genera `agent.properties` en `%ProgramData%\BiblioCat\agent\` con los valores ingresados.
-5. Instala el servicio Windows `BiblioCatAgent` con NSSM:
+5. Copia `README.txt` a `%ProgramFiles%\BiblioCat\Agent\` (si existe en el directorio del script).
+6. Instala el servicio Windows `BiblioCatAgent` con NSSM:
     - Java + JAR como ejecutable
     - Variable de entorno `BIBLOCAT_AGENT_CONFIG` apuntando al properties externo
     - Logs de stdout/stderr en `%ProgramData%\BiblioCat\agent\logs\`
     - Rotación automática de logs (10 MB por archivo, rotación diaria)
     - Política de reinicio: 3 reintentos con backoff (10s, 30s, 60s)
-6. Inicia el servicio.
-7. Muestra resumen: estado del servicio, ubicación de logs, comandos útiles.
+7. Inicia el servicio.
+8. Muestra resumen: estado del servicio, ubicación de logs, README, comandos útiles.
 
 **Uso:**
 
@@ -787,6 +788,7 @@ El método principal de instalación es el script `install-agent.ps1`.
 
 📄 Config: C:\ProgramData\BiblioCat\agent\agent.properties
 📁 Logs:   C:\ProgramData\BiblioCat\agent\logs\
+📖 README: C:\Program Files\BiblioCat\Agent\README.txt
 🔧 Admin:  nssm restart/stop/start BiblioCatAgent
 ```
 
@@ -832,7 +834,9 @@ nssm remove BiblioCatAgent confirm
 
 ```
 %ProgramFiles%\BiblioCat\Agent\
-└── agent-1.0-SNAPSHOT.jar
+├── agent-x.x.x.jar
+├── README.txt              ← Documentación para el usuario
+└── install-agent.ps1       ← Script de instalación/desinstalación
 
 %ProgramData%\BiblioCat\agent\
 ├── agent.properties        ← Configuración (editable por el usuario)

@@ -18,7 +18,11 @@
   (default: http://localhost:8080).
 
 .PARAMETER JarPath
-  Ruta al JAR del Agent. Default: .\agent-1.0-SNAPSHOT.jar (junto al script).
+  Ruta al JAR del Agent. Default: .\agent-0.1.0.jar (junto al script).
+
+.PARAMETER ReadmePath
+  Ruta al archivo README.txt. Default: .\README.txt (junto al script).
+  Si no existe, se omite con un aviso (no fatal).
 
 .PARAMETER Uninstall
   Detiene y remueve el servicio BiblioCatAgent. No elimina config ni logs.
@@ -33,7 +37,8 @@
 param(
     [string]$RootDir,
     [string]$ApiBaseUrl,
-    [string]$JarPath = "$PSScriptRoot\agent-1.0-SNAPSHOT.jar",
+    [string]$JarPath = "$PSScriptRoot\agent-0.1.0.jar",
+    [string]$ReadmePath = "$PSScriptRoot\README.txt",
     [switch]$Uninstall
 )
 
@@ -267,10 +272,22 @@ biblocat.agent.shutdown.grace-period-seconds=5
 
 function Copy-Jar
 {
-    $destJar = "$ProgramFilesDir\agent-1.0-SNAPSHOT.jar"
+    $destJar = "$ProgramFilesDir\agent-0.1.0.jar"
     Copy-Item -LiteralPath $JarPath -Destination $destJar -Force
     Write-Host "✔ JAR copiado a $destJar" -ForegroundColor Green
     return $destJar
+}
+
+function Copy-Readme
+{
+    $destReadme = "$ProgramFilesDir\README.txt"
+    if (-not (Test-Path -LiteralPath $ReadmePath -PathType Leaf))
+    {
+        Write-Host "⚠  README.txt no encontrado en '$ReadmePath' — se omite" -ForegroundColor Yellow
+        return
+    }
+    Copy-Item -LiteralPath $ReadmePath -Destination $destReadme -Force
+    Write-Host "✔ README copiado a $destReadme" -ForegroundColor Green
 }
 
 function Install-Service
@@ -282,7 +299,7 @@ function Install-Service
         exit 1
     }
 
-    $destJar = "$ProgramFilesDir\agent-1.0-SNAPSHOT.jar"
+    $destJar = "$ProgramFilesDir\agent-0.1.0.jar"
     $appParameters = "-jar `"$destJar`""
 
     & $NssmExe install $ServiceName "`"$javaExe`"" $appParameters 2>&1 | Out-Null
@@ -340,7 +357,8 @@ function Show-Summary
     Write-Host "═══════════════════════════════════════════" -ForegroundColor Cyan
     Write-Host "  Servicio:   $ServiceName"
     Write-Host "  Estado:     $status"
-    Write-Host "  JAR:        $ProgramFilesDir\agent-1.0-SNAPSHOT.jar"
+    Write-Host "  JAR:        $ProgramFilesDir\agent-0.1.0.jar"
+    Write-Host "  README:     $ProgramFilesDir\README.txt"
     Write-Host "  Config:     $PropertiesFile"
     Write-Host "  Logs:       $LogsDir"
     Write-Host "  Root dir:   $RootDir"
@@ -419,6 +437,7 @@ function Main
     New-AgentDirectories
     New-AgentProperties
     Copy-Jar | Out-Null
+    Copy-Readme
     Install-Service
     Start-Service
 
