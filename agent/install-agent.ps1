@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
   Instala o desinstala el Agent de BiblioCat como servicio Windows.
 
@@ -7,7 +7,7 @@
   necesario, genera agent.properties, instala el servicio BiblioCatAgent con
   NSSM y lo inicia.
 
-  Ejecutar como Administrador. Si no, el script se auto-eleva.
+  Ejecutar como Administrador (clic derecho → "Ejecutar como administrador").
 
 .PARAMETER RootDir
   Ruta absoluta al directorio raíz de la biblioteca. Si se omite, se pide
@@ -56,7 +56,7 @@ $NssmUrl = "https://nssm.cc/release/nssm-2.24.zip"
 $NssmZip = "$env:TEMP\nssm-2.24.zip"
 $PropertiesFile = "$ProgramDataDir\agent.properties"
 
-# ─── Auto-elevación ───────────────────────────────────────────────────────────
+# ─── Validación de administrador ──────────────────────────────────────────────
 
 function Assert-Administrator
 {
@@ -64,40 +64,24 @@ function Assert-Administrator
     $principal = [Security.Principal.WindowsPrincipal]$identity
     if (-not $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator))
     {
-        Write-Host "⚡ El script requiere permisos de Administrador. Relanzando..." -ForegroundColor Yellow
-        $arguments = "-NoProfile -ExecutionPolicy Bypass -File `"$PSCommandPath`""
-        if ($RootDir)
-        {
-            $arguments += " -RootDir `"$RootDir`""
-        }
-        if ($ApiBaseUrl)
-        {
-            $arguments += " -ApiBaseUrl `"$ApiBaseUrl`""
-        }
-        $arguments += " -JarPath `"$JarPath`""
-        if ($Uninstall)
-        {
-            $arguments += " -Uninstall"
-        }
-
-        $psi = New-Object Diagnostics.ProcessStartInfo
-        $psi.FileName = "powershell.exe"
-        $psi.Arguments = $arguments
-        $psi.Verb = "runas"
-        $psi.WindowStyle = [Diagnostics.ProcessWindowStyle]::Normal
-
-        try
-        {
-            $proc = [Diagnostics.Process]::Start($psi)
-            $proc.WaitForExit()
-            exit $proc.ExitCode
-        }
-        catch
-        {
-            Write-Host "✘ No se pudo elevar a Administrador. Ejecutá el script como Admin manualmente." -ForegroundColor Red
-            exit 1
-        }
+        Write-Host "╔══════════════════════════════════════════╗" -ForegroundColor Red
+        Write-Host "║  Este script debe ejecutarse como        ║" -ForegroundColor Red
+        Write-Host "║  Administrador.                          ║" -ForegroundColor Red
+        Write-Host "╚══════════════════════════════════════════╝" -ForegroundColor Red
+        Write-Host ""
+        Write-Host "Hacé clic derecho → 'Ejecutar como administrador'" -ForegroundColor Yellow
+        throw "Permisos de Administrador requeridos"
     }
+}
+
+# ─── Pausa final ──────────────────────────────────────────────────────────────
+
+function Stop-And-Exit($exitCode)
+{
+    Write-Host ""
+    Write-Host "Presione Enter para cerrar esta ventana..." -ForegroundColor Gray
+    $null = Read-Host
+    exit $exitCode
 }
 
 # ─── Funciones auxiliares ─────────────────────────────────────────────────────
@@ -111,13 +95,13 @@ function Read-Parameters
         if (-not $RootDir)
         {
             Write-Host "✘ El directorio raíz es obligatorio." -ForegroundColor Red
-            exit 1
+            throw "El directorio raíz es obligatorio."
         }
     }
     if (-not (Test-Path -LiteralPath $RootDir -PathType Container))
     {
         Write-Host "✘ El directorio '$RootDir' no existe. Verificá la ruta." -ForegroundColor Red
-        exit 1
+        throw "El directorio '$RootDir' no existe."
     }
     $script:RootDir = $RootDir
 
@@ -151,7 +135,8 @@ function Test-Java21($javaExe)
     try
     {
         $version = & $javaExe -version 2>&1
-        if ($version -match '"(?:1\.)?(\d+)')
+        $versionStr = $version -join ' '
+        if ($versionStr -match '"(?:1\.)?(\d+)')
         {
             $major = [int]$Matches[1]
             if ($major -ge 21)
@@ -160,7 +145,7 @@ function Test-Java21($javaExe)
                 return $true
             }
         }
-        Write-Host "✘ Se requiere Java 21+. Versión detectada: $( $version[0] )" -ForegroundColor Red
+        Write-Host "✘ Se requiere Java 21+. Versión detectada: $versionStr" -ForegroundColor Red
         Write-Host "  en $javaExe" -ForegroundColor Red
         Write-Host "  Descargalo desde https://adoptium.net/" -ForegroundColor Yellow
         return $false
@@ -175,13 +160,6 @@ function Test-Java21($javaExe)
 
 function Resolve-JavaExe
 {
-    # Busca java.exe primero en PATH, después en locations comunes de JDK 21
-    $javaExe = (Get-Command "java" -ErrorAction SilentlyContinue).Source
-    if ($javaExe)
-    {
-        return $javaExe
-    }
-
     $candidates = @(
         "$env:ProgramFiles\Java\jdk-21\bin\java.exe",
         "$env:ProgramFiles\Eclipse Adoptium\jdk-*-hotspot\bin\java.exe",
@@ -196,7 +174,8 @@ function Resolve-JavaExe
             return $match.Path
         }
     }
-    return $null
+
+    return (Get-Command "java" -ErrorAction SilentlyContinue).Source
 }
 
 function Assert-NssmExists
@@ -227,7 +206,19 @@ function Assert-NssmExists
     catch
     {
         Write-Host "✘ Error al descargar/instalar NSSM: $_" -ForegroundColor Red
-        exit 1
+        Write-Host ""
+
+        if (Test-Path -LiteralPath $NssmExe -PathType Leaf)
+        {
+            Write-Host "✔ NSSM ya está presente en $NssmExe — se continúa" -ForegroundColor Green
+            return
+        }
+
+        Write-Host "  Descargalo manualmente:" -ForegroundColor Yellow
+        Write-Host "    1. Abrí $NssmUrl en un navegador" -ForegroundColor Yellow
+        Write-Host "    2. Extraé nssm.exe de nssm-2.24\win64\ a $NssmDir" -ForegroundColor Yellow
+        Write-Host "    3. Ejecutá el script de nuevo" -ForegroundColor Yellow
+        throw "Error al descargar/instalar NSSM: $_"
     }
 }
 
@@ -238,7 +229,7 @@ function Test-JarExists
         Write-Host "✘ No se encuentra el JAR en '$JarPath'." -ForegroundColor Red
         Write-Host "  Construilo primero con: .\mvnw package" -ForegroundColor Yellow
         Write-Host "  O pasá la ruta correcta con -JarPath" -ForegroundColor Yellow
-        exit 1
+        throw "No se encuentra el JAR en '$JarPath'."
     }
     Write-Host "✔ JAR encontrado: $JarPath" -ForegroundColor Green
 }
@@ -252,8 +243,9 @@ function New-AgentDirectories
 
 function New-AgentProperties
 {
+    $escapedRootDir = $RootDir -replace '\\', '/'
     $content = @"
-biblocat.agent.scan.root-dir=$RootDir
+biblocat.agent.scan.root-dir=$escapedRootDir
 biblocat.agent.api.base-url=$ApiBaseUrl
 biblocat.agent.scan.period-seconds=300
 biblocat.agent.scan.max-depth=10
@@ -296,17 +288,26 @@ function Install-Service
     if (-not $javaExe)
     {
         Write-Host "✘ No se pudo ubicar java.exe." -ForegroundColor Red
-        exit 1
+        throw "No se pudo ubicar java.exe."
     }
 
     $destJar = "$ProgramFilesDir\agent-0.1.0.jar"
     $appParameters = "-jar `"$destJar`""
 
+    $null = & $NssmExe status $ServiceName 2>&1
+    if ($LASTEXITCODE -eq 0)
+    {
+        Write-Host "⚠  El servicio '$ServiceName' ya existe — removiendo..." -ForegroundColor Yellow
+        & $NssmExe stop $ServiceName 2>&1 | Out-Null
+        & $NssmExe remove $ServiceName confirm 2>&1 | Out-Null
+        Write-Host "✔ Servicio previo removido" -ForegroundColor Green
+    }
+
     & $NssmExe install $ServiceName "`"$javaExe`"" $appParameters 2>&1 | Out-Null
     if ($LASTEXITCODE -ne 0)
     {
         Write-Host "✘ Error al instalar el servicio con NSSM (exit code: $LASTEXITCODE)" -ForegroundColor Red
-        exit 1
+        throw "Error al instalar el servicio con NSSM (exit code: $LASTEXITCODE)"
     }
 
     $nssmOps = @(
@@ -410,7 +411,7 @@ function Main
     if ($Uninstall)
     {
         Uninstall-Service
-        exit 0
+        return
     }
 
     Write-Host "╔══════════════════════════════════════════╗" -ForegroundColor Cyan
@@ -426,7 +427,7 @@ function Main
     $ok = Test-Java21 $javaExe
     if (-not $ok)
     {
-        exit 1
+        throw "Java 21+ no encontrado."
     }
 
     Assert-NssmExists
@@ -445,4 +446,14 @@ function Main
     Show-Summary
 }
 
-Main
+try
+{
+    Main
+    Stop-And-Exit 0
+}
+catch
+{
+    Write-Host ""
+    Write-Host "✘ Error: $( $_.Exception.Message )" -ForegroundColor Red
+    Stop-And-Exit 1
+}

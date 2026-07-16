@@ -596,13 +596,20 @@ D -->|" Batch[] "| E[Sender<br/>POST /reconcile]
 
 ### 3.3. Secuencia de inicio
 
+**Fase 0 — Espera de API (`waitForApi`):** Antes de iniciar executors, el agente intenta conectarse a la API usando
+`GET /api/reconcile/pending` como probe de salud. Reintentos con backoff exponencial (5s → 10s → 15s, máximo 60s).
+Si la API no responde tras 60s, el agente inicia los executors de todas formas — la primera reconciliación fallará y
+reintentará a los 300s (EC45). Si la API responde dentro de la ventana, el agente procede normalmente.
+
 ```mermaid
 sequenceDiagram
     participant Main as Agent Main
+    participant API
     participant Sched as Scheduler
     participant Poll as Poller
     participant Recon as Reconciliation Runner
-    participant API
+    Main ->> API: GET /api/reconcile/pending (waitForApi, hasta 60s)
+    API -->> Main: 200 (API reachable)
     Main ->> JVM: addShutdownHook
     Main ->> API: POST /api/reconcile/ack (cleanup stale flag)
     Main ->> Sched: scheduleWithFixedDelay(period=300s, delay=0)
@@ -620,6 +627,9 @@ sequenceDiagram
 
 **Notas:**
 
+- **`waitForApi`** usa `checkConnectivity()` (un GET ligero con reintentos) como probe de salud. No usa `getPending()`
+  porque ese método traga errores internamente y nunca propaga fallos de conexión. Si la API no responde en 60s, el
+  agente loguea un warning y arranca los executors de todas formas.
 - El Scheduler usa `delay = 0` para ejecutar un full scan inmediatamente al iniciar el Agent. Las siguientes
   reconciliaciones periódicas ocurren cada `scan.period-seconds` tras finalizar la anterior (garantizado por
   `scheduleWithFixedDelay`).
@@ -692,20 +702,20 @@ sequenceDiagram
 
 ### 4.1. Propiedades del proceso de reconciliación
 
-| Propiedad                                      | Tipo   | Default                 | Descripción                                                                                                                           |
-|------------------------------------------------|--------|-------------------------|---------------------------------------------------------------------------------------------------------------------------------------|
-| `biblocat.agent.api.base-url`                  | String | `http://localhost:8080` | URL base de la API REST (protocolo + host + puerto). No debe incluir trailing slash                                                   |
-| `biblocat.agent.scan.root-dir`                 | String | (requerido)             | Ruta absoluta al directorio raíz de la biblioteca                                                                                     |
-| `biblocat.agent.scan.period-seconds`           | int    | 300                     | Intervalo entre reconciliaciones periódicas posteriores al primer escaneo (segundos). La primera se ejecuta inmediatamente al iniciar |
-| `biblocat.agent.scan.max-depth`                | int    | 10                      | Profundidad máxima de subdirectorios para escanear                                                                                    |
-| `biblocat.agent.poll.interval-seconds`         | int    | 30                      | Intervalo entre verificaciones de reconciliación manual pendiente (segundos)                                                          |
-| `biblocat.agent.hash.timeout-seconds`          | int    | 30                      | Timeout máximo para el cómputo de hash por archivo                                                                                    |
-| `biblocat.agent.hash.max-file-size-mb`         | int    | 500                     | Tamaño máximo de archivo para hashear (MB). 0 = sin límite                                                                            |
-| `biblocat.agent.hash.max-retries`              | int    | 3                       | Reintentos consecutivos de hash antes de loguear ERROR por write-race                                                                 |
-| `biblocat.agent.batch.size`                    | int    | 50                      | Máximo de operaciones por request a la API                                                                                            |
-| `biblocat.agent.retry.max-attempts`            | int    | 3                       | Reintentos máximos ante fallo de conexión con la API                                                                                  |
-| `biblocat.agent.retry.backoff-seconds`         | int    | 2                       | Backoff inicial entre reintentos (se duplica en cada intento)                                                                         |
-| `biblocat.agent.shutdown.grace-period-seconds` | int    | 5                       | Tiempo de espera para shutdown graceful antes de forzar cierre                                                                        |
+| Propiedad                                      | Tipo   | Default                 | Descripción                                                                                                                                            |
+|------------------------------------------------|--------|-------------------------|--------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `biblocat.agent.api.base-url`                  | String | `http://localhost:8080` | URL base de la API REST (protocolo + host + puerto). No debe incluir trailing slash                                                                    |
+| `biblocat.agent.scan.root-dir`                 | String | (requerido)             | Ruta absoluta al directorio raíz de la biblioteca. En el archivo `.properties` debe usar `/` o `\\` — el formato Properties interpreta `\` como escape |
+| `biblocat.agent.scan.period-seconds`           | int    | 300                     | Intervalo entre reconciliaciones periódicas posteriores al primer escaneo (segundos). La primera se ejecuta inmediatamente al iniciar                  |
+| `biblocat.agent.scan.max-depth`                | int    | 10                      | Profundidad máxima de subdirectorios para escanear                                                                                                     |
+| `biblocat.agent.poll.interval-seconds`         | int    | 30                      | Intervalo entre verificaciones de reconciliación manual pendiente (segundos)                                                                           |
+| `biblocat.agent.hash.timeout-seconds`          | int    | 30                      | Timeout máximo para el cómputo de hash por archivo                                                                                                     |
+| `biblocat.agent.hash.max-file-size-mb`         | int    | 500                     | Tamaño máximo de archivo para hashear (MB). 0 = sin límite                                                                                             |
+| `biblocat.agent.hash.max-retries`              | int    | 3                       | Reintentos consecutivos de hash antes de loguear ERROR por write-race                                                                                  |
+| `biblocat.agent.batch.size`                    | int    | 50                      | Máximo de operaciones por request a la API                                                                                                             |
+| `biblocat.agent.retry.max-attempts`            | int    | 3                       | Reintentos máximos ante fallo de conexión con la API                                                                                                   |
+| `biblocat.agent.retry.backoff-seconds`         | int    | 2                       | Backoff inicial entre reintentos (se duplica en cada intento)                                                                                          |
+| `biblocat.agent.shutdown.grace-period-seconds` | int    | 5                       | Tiempo de espera para shutdown graceful antes de forzar cierre                                                                                         |
 
 ## 5. Testing
 
@@ -749,6 +759,7 @@ Requiere Maven wrapper en `agent/mvnw`.
 - **Java 21 JRE** instalado (verificar con `java -version`)
 - **API REST** de BiblioCat funcionando y accesible desde el equipo
 - **NSSM** (el script de instalación lo descarga automáticamente si no está presente)
+- **PowerShell ejecutado como Administrador** — el script valida permisos al iniciar y aborta si no
 - Conexión HTTP entre el Agent y la API (puerto por defecto: 8080)
 
 ### 6.2. Instalación automatizada (recomendada)
@@ -757,39 +768,71 @@ El método principal de instalación es el script `install-agent.ps1`.
 
 **Qué hace el script:**
 
-1. Verifica que Java 21+ esté instalado. Si no, muestra mensaje con link de descarga y aborta.
-2. Verifica que NSSM esté disponible. Si no, lo descarga de nssm.cc y lo extrae a `%ProgramData%\BiblioCat\nssm\`.
-3. Pide al usuario:
+1. Valida que se ejecute como Administrador. Si no, muestra un error y pausa.
+2. Verifica que Java 21+ esté instalado. Si no, muestra mensaje con link de descarga y aborta.
+3. Verifica que NSSM esté disponible. Si no, lo descarga de nssm.cc y lo extrae a `%ProgramData%\BiblioCat\nssm\`.
+4. Pide al usuario:
     - `root-dir`: ruta absoluta a la carpeta de la biblioteca a monitorear
     - `api.base-url`: URL base de la API REST (default: `http://localhost:8080`)
-4. Genera `agent.properties` en `%ProgramData%\BiblioCat\agent\` con los valores ingresados.
-5. Copia `README.txt` a `%ProgramFiles%\BiblioCat\Agent\` (si existe en el directorio del script).
-6. Instala el servicio Windows `BiblioCatAgent` con NSSM:
+5. Genera `agent.properties` en `%ProgramData%\BiblioCat\agent\` con los valores ingresados.
+6. Copia `README.txt` a `%ProgramFiles%\BiblioCat\Agent\` (si existe en el directorio del script).
+7. Instala el servicio Windows `BiblioCatAgent` con NSSM:
     - Java + JAR como ejecutable
     - Variable de entorno `BIBLOCAT_AGENT_CONFIG` apuntando al properties externo
     - Logs de stdout/stderr en `%ProgramData%\BiblioCat\agent\logs\`
     - Rotación automática de logs (10 MB por archivo, rotación diaria)
     - Política de reinicio: 3 reintentos con backoff (10s, 30s, 60s)
-7. Inicia el servicio.
-8. Muestra resumen: estado del servicio, ubicación de logs, README, comandos útiles.
+8. Inicia el servicio.
+9. Muestra resumen: estado del servicio, ubicación de logs, README, comandos útiles.
 
 **Uso:**
 
 ```powershell
-.\install-agent.ps1
+.\install-agent.ps1                        # interactivo (sin parámetros)
+.\install-agent.ps1 -RootDir "D:\Biblioteca" -ApiBaseUrl "http://localhost:8080"   # automatizado
+.\install-agent.ps1 -Uninstall             # desinstalar
 ```
+
+> **⚠ Ejecutar como Administrador** — clic derecho → "Ejecutar como administrador". El script valida permisos al iniciar
+y aborta con un mensaje claro si no.
 
 **Output esperado:**
 
 ```
-✔ Java 21+ detectado en C:\Program Files\Java\jdk-21
-✔ NSSM disponible
-✔ Servicio BiblioCatAgent instalado y corriendo
+╔═══════════════════════════════════════════╗
+║    BiblioCat Agent — Instalación          ║
+╚═══════════════════════════════════════════╝
 
-📄 Config: C:\ProgramData\BiblioCat\agent\agent.properties
-📁 Logs:   C:\ProgramData\BiblioCat\agent\logs\
-📖 README: C:\Program Files\BiblioCat\Agent\README.txt
-🔧 Admin:  nssm restart/stop/start BiblioCatAgent
+✔ Java 21+ detectado en C:\Program Files\Java\jdk-21\bin\java.exe
+✔ NSSM disponible en C:\ProgramData\BiblioCat\nssm\nssm.exe
+✔ JAR encontrado: .\agent-0.1.0.jar
+✔ Configuración generada en C:\ProgramData\BiblioCat\agent\agent.properties
+✔ JAR copiado a C:\Program Files\BiblioCat\Agent\agent-0.1.0.jar
+✔ Servicio 'BiblioCatAgent' instalado
+✔ Servicio 'BiblioCatAgent' iniciado
+
+═══════════════════════════════════════════
+  BiblioCat Agent — instalación completada
+═══════════════════════════════════════════
+  Servicio:   BiblioCatAgent
+  Estado:     SERVICE_RUNNING
+  JAR:        C:\Program Files\BiblioCat\Agent\agent-0.1.0.jar
+  README:     C:\Program Files\BiblioCat\Agent\README.txt
+  Config:     C:\ProgramData\BiblioCat\agent\agent.properties
+  Logs:       C:\ProgramData\BiblioCat\agent\logs\
+  Root dir:   D:\Biblioteca
+  API URL:    http://localhost:8080
+
+  Comandos útiles:
+    nssm start      BiblioCatAgent
+    nssm stop       BiblioCatAgent
+    nssm restart    BiblioCatAgent
+    nssm status     BiblioCatAgent
+    nssm edit       BiblioCatAgent
+    Get-Service     BiblioCatAgent
+═══════════════════════════════════════════
+
+Presione Enter para cerrar esta ventana...
 ```
 
 ### 6.3. Instalación manual (referencia)
@@ -849,8 +892,8 @@ nssm remove BiblioCatAgent confirm
 
 ### 6.5. Edge cases de despliegue
 
-| #  | Caso                                                                                                                      | Comportamiento                                                                                                                                                                                                                                             |
-|----|---------------------------------------------------------------------------------------------------------------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| 45 | **Servicio inicia antes de que la API esté disponible** — el Agent arranca los executors inmediatamente                   | La primera reconciliación falla (`GET /api/sources/paths` agota reintentos). El Agent libera el `AtomicBoolean` y reintenta a los 300s. El log muestra errores de conexión hasta que la API responde. Impacto: bajo.                                       |
-| 46 | **Root-dir es un recurso de red que no está montado al iniciar** — unidad de red (`Z:\`) o recurso UNC (`\\server\share`) | `AgentConfig.load()` valida que el directorio exista. Si no existe, lanza `ConfigurationException` → `System.exit(1)`. NSSM detecta el exit code y aplica la política de reinicio. Si el recurso no se monta tras los reintentos, NSSM deja de reintentar. |
-| 47 | **Permisos del servicio** — el servicio corre como `LocalSystem` vs un usuario específico                                 | `LocalSystem` no tiene acceso a unidades de red montadas bajo sesión de usuario. Solución: configurar el servicio para correr como un usuario específico con `nssm set BiblioCatAgent ObjectName "DOMINIO\usuario" contraseña`.                            |
+| #  | Caso                                                                                                                          | Comportamiento                                                                                                                                                                                                                                                                              |
+|----|-------------------------------------------------------------------------------------------------------------------------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| 45 | **Servicio inicia antes de que la API esté disponible** — `waitForApi()` intenta conectarse hasta 60s con backoff exponencial | Si la API no responde, el Agent arranca los executors de todas formas. La primera reconciliación falla (`GET /api/sources/paths` agota reintentos). El Agent libera el `AtomicBoolean` y reintenta a los 300s. El log muestra errores de conexión hasta que la API responde. Impacto: bajo. |
+| 46 | **Root-dir es un recurso de red que no está montado al iniciar** — unidad de red (`Z:\`) o recurso UNC (`\\server\share`)     | `AgentConfig.load()` valida que el directorio exista. Si no existe, lanza `ConfigurationException` → `System.exit(1)`. NSSM detecta el exit code y aplica la política de reinicio. Si el recurso no se monta tras los reintentos, NSSM deja de reintentar.                                  |
+| 47 | **Permisos del servicio** — el servicio corre como `LocalSystem` vs un usuario específico                                     | `LocalSystem` no tiene acceso a unidades de red montadas bajo sesión de usuario. Solución: configurar el servicio para correr como un usuario específico con `nssm set BiblioCatAgent ObjectName "DOMINIO\usuario" contraseña`.                                                             |

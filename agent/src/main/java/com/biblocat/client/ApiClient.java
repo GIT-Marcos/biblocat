@@ -51,6 +51,14 @@ public class ApiClient {
     }
 
     /**
+     * Liveness probe for startup. Throws {@link ApiException} if the API is unreachable.
+     * Unlike {@link #getPending()}, this method propagates connection failures.
+     */
+    public void checkConnectivity() {
+        sendGetWithRetry(config.apiBaseUrl() + "/api/reconcile/pending");
+    }
+
+    /**
      * Polls the API for a pending manual reconciliation.
      *
      * @return pending response (defaults to not-pending if request fails)

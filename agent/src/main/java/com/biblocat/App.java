@@ -175,7 +175,7 @@ public class App {
         var waited = 0;
         while (true) {
             try {
-                apiClient.getPending();
+                apiClient.checkConnectivity();
                 LOG.info("API reachable at {}", config.apiBaseUrl());
                 return;
             } catch (Exception e) {

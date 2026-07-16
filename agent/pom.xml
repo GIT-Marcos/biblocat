@@ -20,6 +20,7 @@
         <junit.version>6.1.1</junit.version>
         <mockito.version>5.17.0</mockito.version>
         <surefire.version>3.5.2</surefire.version>
+        <jackson.version>2.18.2</jackson.version>
     </properties>
 
     <dependencies>
@@ -39,6 +40,13 @@
             <groupId>org.apache.logging.log4j</groupId>
             <artifactId>log4j-core</artifactId>
             <version>${log4j.version}</version>
+            <scope>runtime</scope>
+        </dependency>
+
+        <dependency>
+            <groupId>com.fasterxml.jackson.core</groupId>
+            <artifactId>jackson-databind</artifactId>
+            <version>${jackson.version}</version>
             <scope>runtime</scope>
         </dependency>
 

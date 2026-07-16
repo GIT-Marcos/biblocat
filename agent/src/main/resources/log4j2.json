@@ -22,7 +22,7 @@
         {
           "name": "com.biblocat",
           "level": "debug",
-          "additivity": false
+          "additivity": true
         }
       ]
     }

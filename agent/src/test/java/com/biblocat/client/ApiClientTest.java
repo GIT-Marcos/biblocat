@@ -1,20 +1,20 @@
 package com.biblocat.client;
 
-import static org.junit.jupiter.api.Assertions.*;
-import static org.mockito.ArgumentMatchers.*;
-import static org.mockito.Mockito.*;
-
-import java.io.IOException;
-import java.net.http.HttpClient;
-import java.net.http.HttpRequest;
-import java.net.http.HttpResponse;
-
 import com.biblocat.config.AgentConfig;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoSettings;
 import org.mockito.quality.Strictness;
+
+import java.io.IOException;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+
+import static org.junit.jupiter.api.Assertions.*;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.*;
 
 @MockitoSettings(strictness = Strictness.LENIENT)
 class ApiClientTest {
@@ -45,7 +45,7 @@ class ApiClientTest {
         var result = apiClient.getPaths();
 
         assertEquals(1, result.size());
-        assertEquals("s1", result.get(0).id());
+        assertEquals("s1", result.getFirst().id());
     }
 
     @Test
@@ -116,6 +116,24 @@ class ApiClientTest {
         var result = apiClient.getPending();
 
         assertFalse(result.pending());
+    }
+
+    @Test
+    void checkConnectivity_succeedsOnHealthyApi() throws Exception {
+        doReturn(response(200, "{\"pending\":false}"))
+                .when(httpClient).send(any(HttpRequest.class), any());
+
+        assertDoesNotThrow(() -> apiClient.checkConnectivity());
+    }
+
+    @Test
+    void checkConnectivity_throwsOnApiUnreachable() throws Exception {
+        doThrow(new IOException("Connection refused"))
+                .when(httpClient).send(any(HttpRequest.class), any());
+
+        assertThrows(ApiException.class, () -> apiClient.checkConnectivity());
+
+        verify(httpClient, times(2)).send(any(HttpRequest.class), any());
     }
 
     @SuppressWarnings({"rawtypes", "unchecked"})
