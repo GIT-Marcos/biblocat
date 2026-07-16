@@ -124,8 +124,8 @@ public class App {
             }
 
         } catch (ConfigurationException e) {
-            LOG.fatal("Agent configuration failed: {}", e.getMessage());
-            LOG.fatal("Check agent.properties and verify root-dir is correct.");
+            LOG.error("Agent configuration failed: {}", e.getMessage());
+            LOG.error("Check agent.properties and verify root-dir is correct.");
             System.exit(1);
         }
     }
@@ -163,7 +163,7 @@ public class App {
                 sleepSeconds(backoff);
             }
         }
-        LOG.fatal("Root directory '{}' does not exist after {} attempts. " +
+        LOG.error("Root directory '{}' does not exist after {} attempts. " +
                         "Verify the path exists and the network drive is mounted. Aborting.",
                 rootDir, maxAttempts + 1);
         System.exit(1);

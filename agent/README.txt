@@ -33,19 +33,21 @@ Parámetros principales:
 
 Edite el archivo con cualquier editor de texto y reinicie el servicio.
 
-================================================================================
-  LOGS
-================================================================================
+===============================================================================
+   LOGS
+===============================================================================
 
 Los registros están en:
   %ProgramData%\BiblioCat\agent\logs\
-    agent.log          Bitácora principal
-    agent-error.log    Errores
+    agent.log          Bitácora principal (formato JSON)
+    agent-error.log    Solo advertencias y errores (formato texto)
 
-Cada archivo rota cuando llega a 10 MB.
+Cada archivo rota al llegar a 10 MB o diariamente.
+  - agent.log:    se conservan hasta 7 archivos rotados
+  - agent-error.log: se conservan hasta 30 archivos rotados
 
-================================================================================
-  ACTUALIZACIÓN
+===============================================================================
+   ACTUALIZACIÓN
 ================================================================================
 
 1. Detenga el servicio:      nssm stop BiblioCatAgent

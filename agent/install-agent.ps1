@@ -313,12 +313,6 @@ function Install-Service
     $nssmOps = @(
         @("set", $ServiceName, "AppDirectory", "`"$ProgramFilesDir`""),
         @("set", $ServiceName, "AppEnvironmentExtra", "BIBLOCAT_AGENT_CONFIG=$PropertiesFile"),
-        @("set", $ServiceName, "AppStdout", "`"$LogsDir\agent.log`""),
-        @("set", $ServiceName, "AppStderr", "`"$LogsDir\agent-error.log`""),
-        @("set", $ServiceName, "AppRotateFiles", "1"),
-        @("set", $ServiceName, "AppRotateBytes", "10485760"),
-        @("set", $ServiceName, "AppRotateSeconds", "86400"),
-        @("set", $ServiceName, "AppRotateOnline", "1"),
         @("set", $ServiceName, "AppExit", "Default", "Restart")
     )
 

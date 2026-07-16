@@ -1,5 +1,11 @@
 package com.biblocat.scanner;
 
+import com.biblocat.model.FileFormat;
+import com.biblocat.model.NormalizedPath;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+import org.apache.logging.log4j.ThreadContext;
+
 import java.io.IOException;
 import java.nio.file.FileVisitResult;
 import java.nio.file.Files;
@@ -10,11 +16,6 @@ import java.text.Normalizer;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
-
-import com.biblocat.model.FileFormat;
-import com.biblocat.model.NormalizedPath;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 
 class ScannerVisitor extends SimpleFileVisitor<Path> {
 
@@ -39,6 +40,7 @@ class ScannerVisitor extends SimpleFileVisitor<Path> {
 
         var relPath = rootDir.relativize(file);
         var normalized = normalizePath(relPath.toString());
+        ThreadContext.put("file", normalized);
 
         var ext = extensionOf(normalized);
         var format = FileFormat.fromExtension(ext);

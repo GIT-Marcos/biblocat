@@ -1,5 +1,10 @@
 package com.biblocat.hasher;
 
+import com.biblocat.model.NormalizedPath;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
+import org.apache.logging.log4j.ThreadContext;
+
 import java.io.IOException;
 import java.io.InputStream;
 import java.nio.file.Files;
@@ -10,17 +15,7 @@ import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ExecutionException;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.Future;
-import java.util.concurrent.TimeUnit;
-import java.util.concurrent.TimeoutException;
-
-import com.biblocat.model.NormalizedPath;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
+import java.util.concurrent.*;
 
 /**
  * Computes SHA-256 content hashes for scanned files.
@@ -91,6 +86,7 @@ public class Hasher {
     private String hashFile(NormalizedPath file, Path absolutePath) {
         try {
             var size = Files.size(absolutePath);
+            ThreadContext.put("file", file.path());
 
             if (size > maxFileSizeBytes) {
                 LOG.warn("File exceeds max size ({} MB): {}", maxFileSizeMb, file.path());

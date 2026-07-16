@@ -9,12 +9,79 @@
         "PatternLayout": {
           "pattern": "%d{ISO8601} [%t] %-5level %logger{36} - %msg%n"
         }
+      },
+      "RollingFile": [
+        {
+          "name": "FileAppender",
+          "fileName": "${env:ProgramData}/BiblioCat/agent/logs/agent.log",
+          "filePattern": "${env:ProgramData}/BiblioCat/agent/logs/agent-%d{yyyy-MM-dd}-%i.log",
+          "createOnDemand": true,
+          "JsonLayout": {
+            "properties": true,
+            "objectMessageAsJsonObject": true,
+            "complete": false,
+            "compact": true,
+            "eventEol": true
+          },
+          "Policies": {
+            "SizeBasedTriggeringPolicy": {
+              "size": "10 MB"
+            },
+            "TimeBasedTriggeringPolicy": {
+              "interval": 1,
+              "modulate": true
+            }
+          },
+          "DefaultRolloverStrategy": {
+            "max": 7
+          }
+        },
+        {
+          "name": "ErrorFileAppender",
+          "fileName": "${env:ProgramData}/BiblioCat/agent/logs/agent-error.log",
+          "filePattern": "${env:ProgramData}/BiblioCat/agent/logs/agent-error-%d{yyyy-MM-dd}-%i.log",
+          "createOnDemand": true,
+          "PatternLayout": {
+            "pattern": "%d{ISO8601} [%t] %-5level %logger{36} - %msg%n"
+          },
+          "Policies": {
+            "SizeBasedTriggeringPolicy": {
+              "size": "10 MB"
+            },
+            "TimeBasedTriggeringPolicy": {
+              "interval": 1,
+              "modulate": true
+            }
+          },
+          "DefaultRolloverStrategy": {
+            "max": 30
+          },
+          "Filters": {
+            "ThresholdFilter": {
+              "level": "WARN",
+              "onMatch": "ACCEPT",
+              "onMismatch": "DENY"
+            }
+          }
+        }
+      ],
+      "Async": {
+        "name": "AsyncFile",
+        "blocking": false,
+        "AppenderRef": [
+          {
+            "ref": "FileAppender"
+          },
+          {
+            "ref": "ErrorFileAppender"
+          }
+        ]
       }
     },
     "loggers": {
       "root": {
         "level": "info",
-        "appenderRef": {
+        "AppenderRef": {
           "ref": "ConsoleAppender"
         }
       },
@@ -22,7 +89,10 @@
         {
           "name": "com.biblocat",
           "level": "debug",
-          "additivity": true
+          "additivity": true,
+          "AppenderRef": {
+            "ref": "AsyncFile"
+          }
         }
       ]
     }

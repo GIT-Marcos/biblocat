@@ -1,13 +1,5 @@
 package com.biblocat.sender;
 
-import java.io.IOException;
-import java.net.URI;
-import java.net.http.HttpClient;
-import java.net.http.HttpRequest;
-import java.net.http.HttpResponse;
-import java.time.Duration;
-import java.util.List;
-
 import com.biblocat.client.HttpUtil;
 import com.biblocat.config.AgentConfig;
 import com.biblocat.dto.Operation;
@@ -17,6 +9,15 @@ import com.google.gson.Gson;
 import com.google.gson.JsonSyntaxException;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.apache.logging.log4j.ThreadContext;
+
+import java.io.IOException;
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+import java.time.Duration;
+import java.util.List;
 
 public class Sender {
 
@@ -24,7 +25,8 @@ public class Sender {
     private static final int REQUEST_TIMEOUT_SECONDS = 60;
     private static final String DUPLICATE_PATH = "DUPLICATE_PATH";
 
-    private record SendResult(int processed, boolean duplicatePath) {}
+    private record SendResult(int processed, boolean duplicatePath) {
+    }
 
     private final HttpClient httpClient;
     private final AgentConfig config;
@@ -65,6 +67,7 @@ public class Sender {
             return 0;
         }
 
+        ThreadContext.put("batchSize", String.valueOf(batch.size()));
         var json = gson.toJson(new ReconcileRequest(batch));
         var requestBuilder = HttpRequest.newBuilder()
                 .uri(URI.create(reconcileUrl))

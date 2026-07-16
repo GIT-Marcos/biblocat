@@ -1,20 +1,15 @@
 package com.biblocat.classifier;
 
-import java.util.ArrayList;
-import java.util.Comparator;
-import java.util.HashMap;
-import java.util.HashSet;
-import java.util.List;
-import java.util.Map;
-import java.util.Set;
-import java.util.stream.Collectors;
-
 import com.biblocat.dto.Operation;
 import com.biblocat.dto.SourceState;
 import com.biblocat.model.NormalizedPath;
 import com.biblocat.model.OperationType;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.apache.logging.log4j.ThreadContext;
+
+import java.util.*;
+import java.util.stream.Collectors;
 
 /**
  * Classifies scanned file-system entries against known API state to produce
@@ -114,6 +109,7 @@ public class Classifier {
             Set<String> renamedIds,
             List<Operation> operations
     ) {
+        ThreadContext.put("file", file.path());
         var sourceByPath = byPathLower.get(file.pathLower());
 
         if (sourceByPath != null) {

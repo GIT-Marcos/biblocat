@@ -9,9 +9,11 @@ import com.biblocat.scanner.Scanner;
 import com.biblocat.sender.Sender;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.apache.logging.log4j.ThreadContext;
 
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
@@ -72,6 +74,7 @@ public class ReconciliationRunner implements Runnable {
         var startNanos = System.nanoTime();
 
         try {
+            ThreadContext.put("operationId", UUID.randomUUID().toString());
             LOG.info("Reconciliation started");
 
             var knownSources = apiClient.getPaths();
@@ -112,6 +115,7 @@ public class ReconciliationRunner implements Runnable {
             LOG.info("Reconciliation finished ({} ms)", elapsedMs);
             reconciliationInProgress.set(false);
             latch.countDown();
+            ThreadContext.clearMap();
         }
     }
 }

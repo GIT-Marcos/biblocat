@@ -40,6 +40,28 @@
 | `org.junit.jupiter:junit-jupiter:6.1.1`      | test    | Tests unitarios                                                |
 | `org.mockito:mockito-junit-jupiter:5.17.0`   | test    | Extensión Mockito para JUnit Jupiter (`@Mock`, `@InjectMocks`) |
 
+### 1.5. Configuración de logging
+
+| Atributo           | Valor                                                         |
+|--------------------|---------------------------------------------------------------|
+| Framework          | Log4j 2.23.1 (API directa, sin SLF4J)                         |
+| Archivo principal  | `%ProgramData%\BiblioCat\agent\logs\agent.log`                |
+| Formato principal  | JSON Lines (JsonLayout) — una línea JSON por evento           |
+| Archivo de errores | `%ProgramData%\BiblioCat\agent\logs\agent-error.log`          |
+| Formato errores    | Texto plano (PatternLayout) — solo WARN+                      |
+| Appender principal | AsyncFile (wrapping no-blocking sobre RollingFile)            |
+| Rotación           | 10 MB o diaria, lo que ocurra primero                         |
+| Retención          | `agent.log`: 7 archivos / `agent-error.log`: 30 archivos      |
+| Consola            | stdout con PatternLayout, nivel INFO+ (para debugging manual) |
+
+**MDC (Mapped Diagnostic Context):**
+
+| Clave MDC     | Descripción                                | Se setea en                              |
+|---------------|--------------------------------------------|------------------------------------------|
+| `operationId` | UUID único por reconciliación              | ReconciliationRunner.runReconciliation() |
+| `file`        | Path relativo del archivo siendo procesado | ScannerVisitor, Classifier, Hasher       |
+| `batchSize`   | Cantidad de operaciones en el batch actual | Sender.sendBatch()                       |
+
 ## 2. Sincronización
 
 ### 2.1. Visión general
