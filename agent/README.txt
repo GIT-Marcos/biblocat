@@ -3,22 +3,23 @@
 ================================================================================
 
 El Agent sincroniza automáticamente los archivos de la biblioteca (PDF, EPUB,
-MHTML) con el sistema BiblioCat. Se ejecuta como servicio de Windows.
+MHTML) con el sistema BiblioCat. Se ejecuta como proceso independiente (no como
+servicio Windows).
 
-================================================================================
-  SERVICIO
-================================================================================
+===============================================================================
+  EJECUCIÓN
+===============================================================================
 
-El servicio se llama "BiblioCatAgent". Adminístrelo con NSSM:
+Ejecutar como Administrador (una sola vez) para copiar el JAR y generar la
+configuración:
 
-  nssm start   BiblioCatAgent    Iniciar el servicio
-  nssm stop    BiblioCatAgent    Detener el servicio
-  nssm restart BiblioCatAgent    Reiniciar el servicio
-  nssm status  BiblioCatAgent    Ver estado del servicio
+  powershell.exe -File setup-agent.ps1
 
-También desde PowerShell:
+Luego iniciar el Agent:
 
-  Get-Service BiblioCatAgent
+  java -jar "%ProgramFiles%\BiblioCat\Agent\agent-0.1.0.jar"
+
+Detener con Ctrl+C en la terminal donde se ejecuta el proceso.
 
 ================================================================================
   CONFIGURACIÓN
@@ -48,24 +49,24 @@ Cada archivo rota al llegar a 10 MB o diariamente.
 
 ===============================================================================
    ACTUALIZACIÓN
-================================================================================
+===============================================================================
 
-1. Detenga el servicio:      nssm stop BiblioCatAgent
+1. Detenga el proceso con Ctrl+C
 2. Reemplace el JAR en:      %ProgramFiles%\BiblioCat\Agent\
-3. Inicie el servicio:       nssm start BiblioCatAgent
+3. Ejecute de nuevo:         java -jar "%ProgramFiles%\BiblioCat\Agent\agent-0.1.0.jar"
 
 No necesita modificar la configuración ni los logs.
 
-================================================================================
-  DESINSTALACIÓN
-================================================================================
+===============================================================================
+   DESINSTALACIÓN
+===============================================================================
 
-Ejecute como Administrador:
+Detenga el proceso con Ctrl+C y elimine los directorios:
 
-  powershell.exe -File install-agent.ps1 -Uninstall
+  %ProgramFiles%\BiblioCat\Agent\
+  %ProgramData%\BiblioCat\agent\
 
-Esto detiene y remueve el servicio. Los archivos de configuración y logs se
-conservan.
+Los logs y configuración se conservan hasta que los borre manualmente.
 
 ================================================================================
   SOLUCIÓN DE PROBLEMAS
