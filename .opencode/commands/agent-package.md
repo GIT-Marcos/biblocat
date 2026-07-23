@@ -14,7 +14,7 @@ explícitamente por el usuario.
 
 1. **No modificar archivos fuera del plan.** Solo se tocan:
     - `agent/pom.xml` (si el usuario lo pide)
-    - `agent/install-agent.ps1` (si el usuario lo pide)
+    - `agent/setup-agent.ps1` (si el usuario lo pide)
     - `.opencode/commands/agent-package.md` (este archivo)
     - `.gitignore` (si el usuario lo pide)
       En esta ejecución: **no se modifican archivos, solo se lee y se generan
@@ -85,7 +85,7 @@ New-Item -ItemType Directory -Path dist -Force
 ```powershell
 $zipPath = "dist/biblocat-agent-$version.zip"
 $null = New-Item -ItemType Directory -Path dist -Force
-Compress-Archive -Path "agent/target/agent-$version.jar", "agent/install-agent.ps1", "agent/README.txt" -DestinationPath $zipPath -Force
+Compress-Archive -Path "agent/target/agent-$version.jar", "agent/setup-agent.ps1", "agent/README.txt" -DestinationPath $zipPath -Force
 ```
 
 ### 6. Verificar contenido del zip
@@ -94,7 +94,7 @@ Abrir el zip usando `System.IO.Compression.ZipFile::OpenRead` y listar las
 entradas. Verificar que contenga exactamente 3 archivos:
 
 - `agent-<version>.jar`
-- `install-agent.ps1`
+- `setup-agent.ps1`
 - `README.txt`
 
 Si faltan archivos, mostrar WARN.
@@ -110,7 +110,7 @@ Si faltan archivos, mostrar WARN.
 ✔ Build exitoso: agent-<version>.jar
 ✔ Zip verificado: dist\biblocat-agent-<version>.zip
   ├── agent-<version>.jar
-  ├── install-agent.ps1
+  ├── setup-agent.ps1
   └── README.txt
 
 Próximos pasos para release manual:
@@ -124,9 +124,9 @@ Próximos pasos para release manual:
 
 ## Archivos generados
 
-| Archivo              | Ruta                                                                       |
-|----------------------|----------------------------------------------------------------------------|
-| Zip listo para subir | `dist/biblocat-agent-<version>.zip` (JAR + install-agent.ps1 + README.txt) |
+| Archivo              | Ruta                                                                     |
+|----------------------|--------------------------------------------------------------------------|
+| Zip listo para subir | `dist/biblocat-agent-<version>.zip` (JAR + setup-agent.ps1 + README.txt) |
 
 El directorio `dist/` ya está en `.gitignore`, los zips no se commitean.
 
@@ -135,6 +135,6 @@ El directorio `dist/` ya está en `.gitignore`, los zips no se commitean.
 Antes de dar el comando por terminado, confirmar:
 
 - [ ] `dist/biblocat-agent-<version>.zip` existe
-- [ ] El zip contiene exactamente 3 archivos: `agent-<version>.jar` + `install-agent.ps1` + `README.txt`
+- [ ] El zip contiene exactamente 3 archivos: `agent-<version>.jar` + `setup-agent.ps1` + `README.txt`
 - [ ] No hay archivos nuevos fuera de `dist/`
 - [ ] No se modificó ningún archivo fuente

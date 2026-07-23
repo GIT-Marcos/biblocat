@@ -1,11 +1,17 @@
 ﻿<#
+.DEPRECATED
+  This script installed the agent as a Windows service via NSSM.
+  NSSM has been removed from the project. Use setup-agent.ps1 instead.
+
 .SYNOPSIS
-  Instala o desinstala el Agent de BiblioCat como servicio Windows.
+  Instala o desinstala el Agent de BiblioCat como servicio Windows (DEPRECATED).
 
 .DESCRIPTION
   Automatiza la configuración del Agent: verifica Java 21+, descarga NSSM si es
   necesario, genera agent.properties, instala el servicio BiblioCatAgent con
   NSSM y lo inicia.
+
+  ⚠ DEPRECATED — Use setup-agent.ps1 en su lugar.
 
   Ejecutar como Administrador (clic derecho → "Ejecutar como administrador").
 
