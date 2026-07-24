@@ -24,6 +24,8 @@ public record AgentConfig(
 
     private static final String DEFAULT_CONFIG = "agent.properties";
     private static final String ENV_CONFIG_OVERRIDE = "BIBLOCAT_AGENT_CONFIG";
+    private static final String WIN_FALLBACK_ENV = "ProgramData";
+    private static final String WIN_FALLBACK_RELATIVE = "BiblioCat/agent/agent.properties";
 
     public static AgentConfig load() {
         var props = loadProperties();
@@ -51,6 +53,18 @@ public record AgentConfig(
             props.load(in);
         } catch (IOException e) {
             throw new ConfigurationException("Failed to load default config from classpath", e);
+        }
+
+        var programData = System.getenv(WIN_FALLBACK_ENV);
+        if (programData != null && !programData.isBlank()) {
+            var winFallback = Paths.get(programData, WIN_FALLBACK_RELATIVE);
+            if (Files.exists(winFallback)) {
+                try (var in = Files.newInputStream(winFallback)) {
+                    props.load(in);
+                } catch (IOException e) {
+                    // non-fatal: well-known file exists but is unreadable, continue
+                }
+            }
         }
 
         var overridePath = System.getenv(ENV_CONFIG_OVERRIDE);

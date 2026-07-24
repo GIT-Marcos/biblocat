@@ -32,7 +32,12 @@ Parámetros principales:
   biblocat.agent.api.base-url     URL de la API REST de BiblioCat
   biblocat.agent.scan.period-seconds  Intervalo entre sincronizaciones (def: 300)
 
-Edite el archivo con cualquier editor de texto y reinicie el servicio.
+Edite el archivo con cualquier editor de texto y reinicie el proceso.
+
+El Agent busca este archivo automáticamente al iniciar. Si no existe,
+usa los valores por defecto empaquetados en el JAR.
+Para usar una ruta distinta, fijar la variable de entorno:
+  BIBLOCAT_AGENT_CONFIG=<ruta>
 
 ===============================================================================
    LOGS

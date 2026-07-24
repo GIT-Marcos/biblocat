@@ -244,6 +244,7 @@ function Show-Summary
     Write-Host ""
     Write-Host "  Ejecutar:" -ForegroundColor Cyan
     Write-Host "    java -jar `"$ProgramFilesDir\agent-0.1.0.jar`""
+    Write-Host "    (La configuración en $PropertiesFile se detecta automáticamente)"
     Write-Host ""
     Write-Host "  Detener:" -ForegroundColor Cyan
     Write-Host "    Ctrl+C en la terminal donde se ejecuta el proceso"
