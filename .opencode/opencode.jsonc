@@ -5,17 +5,17 @@
     ".opencode/workflow.md"
   ],
   "agent": {
-    "orquestador": {
+    "api-planner": {
       "mode": "primary",
-      "description": "Orquestador SDD — planificación estructurada con mentor pedagógico para BiblioCat",
-      "prompt": "{file:./workflow.md}",
+      "description": "Planificador API — planificación estructurada orientada para la API de BiblioCat",
+      "prompt": "{file:./api-planner.md}",
       "permission": {
         "task": {
           "*": "allow"
         },
-        "write": "allow",
-        "edit": "allow",
-        "bash": "allow"
+        "edit": "deny",
+        "bash": "ask",
+        "question": "allow"
       }
     }
   },
