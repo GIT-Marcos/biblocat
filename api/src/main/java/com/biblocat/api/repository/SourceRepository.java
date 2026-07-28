@@ -1,0 +1,61 @@
+package com.biblocat.api.repository;
+
+import com.biblocat.api.entity.Source;
+
+import java.time.Instant;
+import java.util.List;
+import java.util.Optional;
+import java.util.UUID;
+
+import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
+import org.springframework.data.jpa.repository.Modifying;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
+
+public interface SourceRepository extends JpaRepository<Source, UUID>, JpaSpecificationExecutor<Source> {
+
+    boolean existsByPathLowerIgnoreCaseAndDeletedAtIsNull(String pathLower);
+
+    @Query(value = """
+            SELECT DISTINCT ON (s.path_lower)
+                s.id                    AS id,
+                s.path                  AS path,
+                s.path_lower            AS pathLower,
+                s.content_hash          AS contentHash,
+                s.deleted_at            AS deletedAt
+            FROM sources s
+            ORDER BY s.path_lower,
+                CASE WHEN s.deleted_at IS NULL THEN 0 ELSE 1 END
+            """, nativeQuery = true)
+    List<PathsProjection> findPathsForReconciliation();
+
+    @Query(value = """
+            SELECT s.* FROM sources s
+            WHERE s.content_hash = :hash
+              AND s.deleted_at IS NOT NULL
+            """, nativeQuery = true)
+    List<Source> findOrphansByContentHash(@Param("hash") String hash);
+
+    @Query(value = """
+            SELECT s.* FROM sources s
+            WHERE s.id = :id
+            """, nativeQuery = true)
+    Optional<Source> findByIdIncludeDeleted(@Param("id") UUID id);
+
+    @Modifying
+    @Query(value = "DELETE FROM sources WHERE id = :id", nativeQuery = true)
+    void hardDeleteById(@Param("id") UUID id);
+
+    interface PathsProjection {
+        UUID getId();
+
+        String getPath();
+
+        String getPathLower();
+
+        String getContentHash();
+
+        Instant getDeletedAt();
+    }
+}

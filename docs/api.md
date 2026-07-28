@@ -17,8 +17,7 @@
 | `spring-boot-starter-web`        | Controladores REST, Jackson, Tomcat embebido |
 | `spring-boot-starter-data-jpa`   | JPA + Hibernate + Spring Data                |
 | `spring-boot-starter-validation` | Bean Validation (`@Valid`)                   |
-| `flyway-core`                    | Migraciones de esquema                       |
-| `flyway-database-postgresql`     | Soporte PostgreSQL en Flyway                 |
+| `spring-boot-starter-flyway`     | Migraciones Flyway + driver PostgreSQL       |
 | `postgresql`                     | Driver JDBC de PostgreSQL (runtime)          |
 
 ### 1.3. Base de datos
@@ -119,7 +118,8 @@ Detalle de un source.
 
 #### `PATCH /api/sources/{id}`
 
-Actualiza metadatos editables. Solo actualiza los campos enviados (merge parcial).
+Establece los metadatos editables del source. El frontend debe enviar los **tres campos** en cada
+petición. No es merge parcial — los valores ausentes se interpretan como `null` y limpian el campo.
 
 **Path parameter:** `id` — UUID del source.
 
@@ -135,9 +135,9 @@ Actualiza metadatos editables. Solo actualiza los campos enviados (merge parcial
 
 | Campo     | Tipo            | Requerido | Descripción                                                            |
 |-----------|-----------------|-----------|------------------------------------------------------------------------|
-| `year`    | `integer`       | no        | Año de publicación. `null` limpia el valor                             |
-| `edition` | `string` (50)   | no        | Edición. `null` limpia el valor                                        |
-| `url`     | `string` (2048) | no        | URL asociada. Debe ser HTTP/HTTPS si se provee. `null` limpia el valor |
+| `year`    | `integer`       | sí        | Año de publicación. `null` limpia el valor                             |
+| `edition` | `string` (50)   | sí        | Edición. `null` limpia el valor                                        |
+| `url`     | `string` (2048) | sí        | URL asociada. Debe ser HTTP/HTTPS si se provee. `null` limpia el valor. No enviar string vacío (`""`) — se rechazará con 400 |
 
 **Response `200 OK`:** Source actualizado (misma estructura que un item de listado).
 
@@ -285,11 +285,16 @@ Ver `agent.md §2.8.F EC32`.
 si reintentar. Excepciones: `4xx` (excluyendo `409`) no reintentar; `409` reintentar 1 vez; `5xx` reintentar con backoff
 configurable.
 
-| Código de error      | Causa                                                  | Acción del Agent                                          |
-|----------------------|--------------------------------------------------------|-----------------------------------------------------------|
-| `SOURCE_NOT_FOUND`   | El `sourceId` no existe (fue purgado entre GET y POST) | Log WARN, no reintentar, continuar con el resto del batch |
-| `UNSUPPORTED_FORMAT` | Formato de archivo no soportado                        | Log WARN, no reintentar                                   |
-| `DUPLICATE_PATH`     | `pathLower` ya existe como activo                      | Log WARN, reintentar 1 vez                                |
+| Código de error        | Causa                                                    | Acción del Agent                                          |
+|------------------------|----------------------------------------------------------|-----------------------------------------------------------|
+| `MISSING_NAME`         | Operación CREATE/RENAME sin `name`                       | Log ERROR, no reintentar, revisar configuración del Agent |
+| `MISSING_PATH`         | Operación CREATE/RENAME/REACTIVATE sin `path`            | Log ERROR, no reintentar, revisar configuración del Agent |
+| `MISSING_PATH_LOWER`   | Operación CREATE/RENAME sin `pathLower`                  | Log ERROR, no reintentar, revisar configuración del Agent |
+| `MISSING_CONTENT_HASH` | Operación CREATE/UPDATE/REACTIVATE sin `contentHash`     | Log ERROR, no reintentar, revisar configuración del Agent |
+| `MISSING_SOURCE_ID`    | Operación RENAME/UPDATE/DELETE/REACTIVATE sin `sourceId` | Log ERROR, no reintentar, revisar configuración del Agent |
+| `SOURCE_NOT_FOUND`     | El `sourceId` no existe (fue purgado entre GET y POST)   | Log WARN, no reintentar, continuar con el resto del batch |
+| `UNSUPPORTED_FORMAT`   | Formato de archivo no soportado                          | Log WARN, no reintentar                                   |
+| `DUPLICATE_PATH`       | `pathLower` ya existe como activo                        | Log WARN, reintentar 1 vez                                |
 
 **Reglas de procesamiento:**
 
@@ -550,7 +555,7 @@ Service nunca depende de Controller.
 ```
 com.biblocat.api
 ├── ApiApplication.java
-├── config/        ← Configuraciones Spring (CORS, JPA Auditing, Jackson)
+├── config/        ← Configuraciones Spring (CORS, JPA Auditing). Jackson se configura vía YAML
 ├── controller/    ← Controladores REST (@RestController)
 ├── dto/
 │   ├── request/   ← Objetos de entrada (CreateSourceRequest, etc.)
@@ -571,22 +576,24 @@ com.biblocat.api
 - **Soft-delete obligatorio.** No se eliminan registros físicamente salvo purge explícito del usuario.
 - **DTOs separados de entities.** Las entidades JPA nunca se exponen directamente en la respuesta HTTP. Se mapean a
   DTOs.
-- **Validación en la frontera.** Toda validación de entrada ocurre en el Controller vía `@Valid`. Service recibe datos
-  ya validados.
+- **Validación en la frontera.** Toda validación expresable con Bean Validation estándar (formato de campos, tipos,
+  `@NotNull` en campos no condicionales) ocurre en el Controller vía `@Valid`. La validación de campos requeridos
+  condicionales (según el tipo de operación en `POST /api/sources/reconcile`) ocurre en el Service, donde se evalúa
+  programáticamente antes de persistir.
 - **Excepciones unchecked.** Todas las excepciones de dominio extienden `RuntimeException`. El `GlobalExceptionHandler`
   las traduce a respuestas HTTP con formato RFC 9457.
 
 ### 3.4. Patrones adoptados
 
-| Patrón            | Implementación                                                                      |
-|-------------------|-------------------------------------------------------------------------------------|
-| DTO mapping       | Mapper manual o librería (entity ↔ DTO)                                             |
-| Manejo de errores | `@RestControllerAdvice` + `ProblemDetail` (RFC 9457)                                |
-| Validación        | `@Valid` + Bean Validation en Controllers                                           |
-| Transacciones     | `@Transactional` en Services                                                        |
-| Soft-delete       | `deleted_at IS NULL` en queries; `@Where(clause = "deleted_at IS NULL")` en entidad |
-| Búsqueda dinámica | Spring Data JPA `Specification` o `@Query` con WHERE condicional                    |
-| IDs               | UUID generados por la BD (`gen_random_uuid()`)                                      |
+| Patrón            | Implementación                                                                                                                                                                                                                      |
+|-------------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| DTO mapping       | Mapper manual o librería (entity ↔ DTO)                                                                                                                                                                                             |
+| Manejo de errores | `@RestControllerAdvice` + `ProblemDetail` (RFC 9457)                                                                                                                                                                                |
+| Validación        | `@Valid` + Bean Validation en Controllers                                                                                                                                                                                           |
+| Transacciones     | `@Transactional` en Services                                                                                                                                                                                                        |
+| Soft-delete       | `deleted_at IS NULL` en queries explícitas vía `SourceSpecifications` (Criteria) y native queries en `SourceRepository`. Sin `@Where`/`@SQLRestriction` en la entidad para permitir consultar orphans cuando `includeDeleted=true`. |
+| Búsqueda dinámica | Spring Data JPA `Specification` o `@Query` con WHERE condicional                                                                                                                                                                    |
+| IDs               | UUID generados por Hibernate vía `GenerationType.UUID` (`UUID.randomUUID()` en Java)                                                                                                                                                |
 
 ### 3.5. Paginación
 
@@ -634,7 +641,8 @@ estado del archivo en disco.
   (caso D de reconciliación). No es UNIQUE porque pueden coexistir duplicados temporales hasta que el Agent
   los resuelva como RENAME.
 - `deleted_at = NULL` identifica sources activos. `deleted_at ≠ NULL` identifica orphan sources.
-- `updated_at` se actualiza automáticamente desde JPA vía `@LastModifiedDate` + `@EnableJpaAuditing`.
+- `updated_at` se actualiza automáticamente desde Spring Data JPA vía `@LastModifiedDate`, habilitado por
+  `@EnableJpaAuditing` en `JpaConfig`. `created_at` usa `@CreatedDate`. Ambas anotaciones son de Spring Data Auditing.
 
 #### Author (`authors`)
 
@@ -735,9 +743,15 @@ Ejemplo de respuesta `404`:
 
 ### 6.2. Tabla de excepciones
 
-| Excepción               | HTTP | Disparo                        |
-|-------------------------|------|--------------------------------|
-| `Exception` (catch-all) | 500  | Cualquier error no contemplado |
+| Excepción                         | HTTP | Disparo                                                                     |
+|-----------------------------------|------|-----------------------------------------------------------------------------|
+| `SourceNotFoundException`         | 404  | Source no encontrado por ID                                                 |
+| `TagNotFoundException`            | 404  | Tag no encontrado por ID                                                    |
+| `ActiveSourceException`           | 409  | Intento de purgar un source activo (`deleted_at IS NULL`)                   |
+| `TagAlreadyExistsException`       | 409  | Tag con ese nombre ya existe                                                |
+| `DuplicatePathException`          | 409  | `pathLower` ya existe como activo en `POST /api/sources/reconcile` (CREATE) |
+| `MethodArgumentNotValidException` | 400  | Validación `@Valid` falla en cualquier endpoint                             |
+| `Exception` (catch-all)           | 500  | Cualquier error no contemplado                                              |
 
 ## 7. Perfiles YAML
 
