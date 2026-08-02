@@ -22,12 +22,15 @@
 
 ### 1.3. Base de datos
 
-| Propiedad | Valor              |
-|-----------|--------------------|
-| Motor     | PostgreSQL         |
-| Versión   | *(por determinar)* |
+| Propiedad                | Valor                                      |
+|--------------------------|--------------------------------------------|
+| Motor                    | PostgreSQL                                 |
+| Versión                  | *(por determinar)*                         |
+| Versión probada en tests | 16 (imagen `postgres:16-alpine`, ver §8.2) |
 
-### 1.4. Testing (por definir)
+### 1.4. Testing
+
+La estrategia de testing, dependencias y convenciones se definen en §8.
 
 ## 2. Endpoints
 
@@ -841,3 +844,152 @@ Ejemplo de respuesta `404`:
 | `application-prod.yaml` | Operación real (logging mínimo, base de datos productiva con variables de entorno) |
 
 ## 8. Testing
+
+### 8.1. Estrategia general
+
+Pirámide adaptada al alcance del sistema, con **solo los tests mínimos e indispensables**: los **tests de
+integración** son el núcleo (cubren el contrato HTTP completo y las reglas de dominio sobre PostgreSQL real) y los
+**slice tests de web** cubren la validación de entrada y el mapeo de errores sin base de datos.
+
+**Lo que NO se testea y por qué:**
+
+- **Unit tests de servicios** — la lógica de negocio (validación condicional del reconcile, orden de procesamiento,
+  transferencia por hash) se cubre por integración contra la BD real.
+- **`@DataJpaTest` separado** — las specifications y queries nativas se ejercitan en los flujos de integración.
+- **Mappers** — se cubren indirectamente por la serialización JSON verificada en cada endpoint.
+- **Migraciones Flyway** — se validan en cada corrida de integración al levantarse el contexto sobre el contenedor.
+
+**Decisiones adoptadas:**
+
+| Decisión               | Opción adoptada                             | Justificación                                                                                                                                                              |
+|------------------------|---------------------------------------------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| Base de datos de tests | Testcontainers, imagen `postgres:16-alpine` | El esquema usa features de PostgreSQL (ENUM `file_format`, `gen_random_uuid()`, índice único parcial) que hacen inviable H2 con Flyway. Aislamiento total sin setup manual |
+| API de asserts HTTP    | `MockMvcTester` + AssertJ                   | API recomendada en Spring Boot 4.1; fluida, tipada y encadenable                                                                                                           |
+| Mocks en slice web     | `@MockitoBean`                              | Sustituto oficial de `@MockBean` (eliminado en Spring Boot 4.x)                                                                                                            |
+| Niveles de testing     | Integración + slice web                     | Mínimo indispensable para cubrir contrato HTTP y reglas de dominio                                                                                                         |
+| Versionado PostgreSQL  | `postgres:16-alpine`                        | Versión LTS; fija la versión probada en tests (§1.3)                                                                                                                       |
+
+**Nota sobre Docker:** Testcontainers introduce Docker como **tooling de testing**, no como infraestructura de
+producción. Ver `architecture.md §5.1`.
+
+### 8.2. Stack de testing y dependencias
+
+| Dependencia                        | Propósito                                                             | Scope |
+|------------------------------------|-----------------------------------------------------------------------|-------|
+| `spring-boot-starter-test`         | JUnit 5, Mockito, AssertJ, json-path, MockMvc (ya presente en el pom) | test  |
+| `spring-boot-testcontainers`       | Anotación `@ServiceConnection` (Spring Boot 4.1)                      | test  |
+| `org.testcontainers:postgresql`    | Contenedor PostgreSQL                                                 | test  |
+| `org.testcontainers:junit-jupiter` | Lifecycle JUnit 5 (`@Testcontainers`, `@Container`)                   | test  |
+
+Las versiones de Testcontainers se gestionan por el BOM de Spring Boot 4.1 — no se declaran versiones propias.
+
+**Requisitos de entorno:**
+
+- Docker Desktop en Windows (10/11). Sin Docker, la suite de integración no puede ejecutarse.
+- La imagen `postgres:16-alpine` se descarga en la primera corrida.
+
+**Comandos:**
+
+| Comando                                        | Propósito                                        |
+|------------------------------------------------|--------------------------------------------------|
+| `./mvnw test` (desde `api/`)                   | Ejecutar toda la suite                           |
+| `./mvnw test -Dgroups='!integration'`          | Ejecutar solo slice tests (sin Docker)           |
+
+### 8.3. Niveles de testing
+
+#### 8.3.1. Tests de integración (núcleo)
+
+Cubren el contrato HTTP completo y las reglas de dominio sobre PostgreSQL real, incluyendo queries nativas,
+soft-delete, el índice único parcial y la transferencia de metadatos por hash (§2.1, `docs/issues/ISSUE-01`).
+
+**Configuración base:**
+
+- Anotaciones: `@SpringBootTest` + `@AutoConfigureMockMvc` + `@Testcontainers` con `@Container static` +
+  `@ServiceConnection`.
+- Un único contenedor estático por suite (context caching de Spring; nunca un contenedor por clase).
+- Flyway corre automáticamente sobre el contenedor al levantar el contexto.
+- `MockMvcTester` se inyecta automáticamente con `@AutoConfigureMockMvc`.
+
+**Limpieza de datos:**
+
+- `@BeforeEach` con `DELETE` explícito en orden de FKs: `source_tags` → `sources` → `tags` → `authors` →
+  `reconciliation`.
+- La fila seed de `reconciliation` (`id = 1`, insertada por `V0001`) **se preserva**.
+
+**Prohibiciones:**
+
+- `@DirtiesContext` — invalida el context caching y ralentiza la suite.
+- `@Transactional` en la clase de test — oculta el comportamiento real de commit y produce falsos positivos.
+
+**Cobertura mínima indispensable por endpoint:**
+
+| Endpoint                          | Casos indispensables                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+|-----------------------------------|---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `POST /api/sources/reconcile`     | Batch con los 5 tipos de operación en un solo request; procesamiento en orden RENAME → UPDATE → REACTIVATE → CREATE → DELETE; DELETE repetido (idempotente, no-op); transferencia de metadatos por `contentHash` con 0, 1 y >1 orphans (§2.1, ISSUE-01); errores por operación: `MISSING_NAME`, `MISSING_PATH`, `MISSING_PATH_LOWER`, `MISSING_CONTENT_HASH`, `MISSING_SOURCE_ID`, `SOURCE_NOT_FOUND`, `UNSUPPORTED_FORMAT`, `DUPLICATE_PATH`; REACTIVATE preserva metadatos y no modifica `pathLower`; CREATE con `authorName` existente y nuevo |
+| `GET /api/sources/paths`          | Sources activos antes que orphans; unicidad de `pathLower` (orphan omitido cuando un activo comparte pathLower); respuesta plana sin paginación                                                                                                                                                                                                                                                                                                                                                                                                   |
+| `GET /api/sources`                | Filtros `q`/`authorId`/`tagId`/`format`; `includeDeleted`; clamp real de `size > 100` → `200` con `size = 100`; `page > totalPages` → `200` con `content: []`; orden por `author.name` con LEFT JOIN (sources sin autor incluidos); contrato exacto de 5 campos (sin `pageable`/`sort`/`first`/`last`)                                                                                                                                                                                                                                            |
+| `GET /api/sources/{id}`           | `200`; `404`; `includeDeleted=true` permite consultar orphans                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| `PATCH /api/sources/{id}`         | `200` con los tres campos; `null` limpia el campo; URL inválida → `400`; `404`                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| `DELETE /api/sources/{id}`        | `204` purga de orphan; `404`; `409` source activo                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| `PUT /api/sources/{id}/tags`      | Reemplazo completo de tags; array vacío desasigna todas; `404` source; `404` tag                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| `GET/POST/PATCH/DELETE /api/tags` | CRUD completo: `201`, `200`, `204`; `400` name vacío; `409` duplicado; `404`; normalización lowercase; DELETE con cascade de `source_tags`                                                                                                                                                                                                                                                                                                                                                                                                        |
+| `GET /api/authors`                | Listado completo; búsqueda `q` parcial case-insensitive                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| `POST /api/reconcile`             | `200` con `pending: true`; idempotente (request repetido → `200` con el mismo cuerpo)                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| `GET /api/reconcile/pending`      | `200` con `pending` `true`/`false`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| `POST /api/reconcile/ack`         | `200` con `acknowledged: true`; no-op si `pending` ya es `false`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| Formato RFC 9457                  | Verificación del formato completo (`type`/`title`/`status`/`detail`/`instance` + `Content-Type: application/problem+json`) en al menos un `400` y un `404` (§6)                                                                                                                                                                                                                                                                                                                                                                                   |
+
+#### 8.3.2. Slice tests de web (contrato HTTP)
+
+Verifican la capa web sin levantar la base de datos: validación de entrada, serialización JSON y mapeo de errores.
+
+**Configuración base:**
+
+- Anotaciones: `@WebMvcTest(ClaseController.class)` — carga solo el controller, su `@ControllerAdvice`
+  (GlobalExceptionHandler) y la configuración MVC.
+- Servicios mockeados con `@MockitoBean`.
+- `MockMvcTester` se inyecta automáticamente.
+- **No requieren Docker ni base de datos.**
+
+**Clases:**
+
+- `SourceControllerTest` — el más extenso: paginación, listado, detalle, patch, purge, paths, reconcile, tags.
+- `TagControllerTest` — CRUD de tags.
+- `AuthorControllerTest` — listado de autores.
+- `ReconciliationControllerTest` — trío de reconciliation.
+
+**Cobertura mínima indispensable:**
+
+| Aspecto              | Casos                                                                                                                                                                        |
+|----------------------|------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| Validación `@Valid`  | `400` para `SourcePatchRequest` con URL inválida; `SourceTagsRequest`/`TagCreateRequest` con campos vacíos; cuerpos malformados                                              |
+| Errores del servicio | `404`/`409` con cuerpo RFC 9457 al mockear `SourceNotFoundException`, `TagNotFoundException`, `ActiveSourceException`, `TagAlreadyExistsException`, `DuplicatePathException` |
+| Reglas de paginación | `400` para `page` negativo, `size < 1`, `sort` con separador `:`, campo fuera de whitelist, dirección inválida; `200` con sort múltiple válido (§3.5)                        |
+| Serialización JSON   | Estructura de `SourceResponse`, `PageResponse` (5 campos exactos), `PathsEntryResponse`, `ReconcileResponse`, `TagResponse`, `AuthorResponse`                                |
+| `@PageableDefault`   | Sin parámetros → `size=20`, `sort=name,asc` (verificar el `Pageable` recibido por el servicio mockeado)                                                                      |
+
+### 8.4. Convenciones
+
+| Regla             | Valor                                                                                                   |
+|-------------------|---------------------------------------------------------------------------------------------------------|
+| Naming            | Sufijo `Test`; paquete espejo de `main` (`com.biblocat.api.controller`, `com.biblocat.api.integration`) |
+| Determinismo      | UUIDs fijos en los fixtures; datos inicializados explícitamente en `@BeforeEach`                        |
+| Estilo de asserts | AssertJ + `MockMvcTester` fluido (`hasStatusOk()`, `bodyJson().isEqualTo(...)`)                         |
+| Tagging           | `@Tag("integration")` en clases que requieren Docker (permite exclusión sin Docker, ver §8.2)           |
+| Contenedor        | Único contenedor estático compartido por toda la suite; nunca por clase                                 |
+| Prohibido         | `@DirtiesContext`, `@Transactional` en integración, tests que dependen del orden de ejecución           |
+
+### 8.5. Criterio de suficiencia
+
+La estrategia de testing se considera completa cuando:
+
+1. La suite corre verde con `./mvnw test` en una máquina con Docker Desktop.
+2. Cada endpoint documentado en §2 tiene su caso feliz y sus errores principales cubiertos (matrices de §8.3.1 y
+   §8.3.2).
+3. **Regla anti-crecimiento:** no se agregan tests que dupliquen cobertura ya existente sin justificación.
+
+### 8.6. Pendientes
+
+- Incorporar las dependencias de §8.2 al `pom.xml` (`spring-boot-testcontainers`, `testcontainers-postgresql`,
+  `testcontainers-junit-jupiter`) — necesarias para ejecutar la estrategia.
+- Definir la versión de PostgreSQL de producción (§1.3). La versión probada en tests es `16`.

@@ -258,7 +258,7 @@ graph LR
 - Message brokers (RabbitMQ, Kafka) — la comunicación HTTP directa entre Agent y API es adecuada
 - Búsqueda de texto completo (ElasticSearch, Solr) — solo se busca por metadatos
 - Spring Boot en el Agent — el Agent es una aplicación Java liviana sin necesidad de DI
-- Docker, Kubernetes o cualquier infraestructura de contenedores — no está contemplada en V1
+- Docker/Kubernetes como infraestructura de producción — no está contemplada en V1. Docker se usa **únicamente como tooling de testing** vía Testcontainers (ver `api.md` §8); no forma parte del stack de ejecución
 - ORM en el Agent — usa únicamente HttpClient plano para comunicarse con la API
 - APIs de IA, embeddings o procesamiento de lenguaje natural
 
