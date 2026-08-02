@@ -912,8 +912,10 @@ soft-delete, el índice único parcial y la transferencia de metadatos por hash 
 **Configuración base:**
 
 - Anotaciones: `@SpringBootTest` + `@AutoConfigureMockMvc` + `@Import(TestContainerConfig.class)`, donde
-  `TestContainerConfig` es una `@TestConfiguration` que declara el `PostgreSQLContainer` como bean con
-  `@ServiceConnection`.
+  `TestContainerConfig` es una `@TestConfiguration` que declara como bean con `@ServiceConnection` el
+  `PostgreSQLContainer` del paquete modular `org.testcontainers.postgresql`, instanciado con
+  `DockerImageName.parse("postgres:16-alpine")`. El alias `org.testcontainers.containers.PostgreSQLContainer`
+  y el constructor con `String` están deprecados (desde Testcontainers 2.x y 1.15.0 respectivamente).
 - Un único contenedor compartido por toda la suite (context caching de Spring; nunca un contenedor por clase).
 - Flyway corre automáticamente sobre el contenedor al levantar el contexto.
 - `MockMvcTester` se inyecta automáticamente con `@AutoConfigureMockMvc`.
