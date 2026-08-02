@@ -1,6 +1,6 @@
 # Testcontainers Configuration
 
-## Spring Boot 3.5+ `@ServiceConnection`
+## Spring Boot 4.x `@ServiceConnection`
 
 ```java
 @TestConfiguration
@@ -8,8 +8,8 @@ public class TestContainerConfig {
 
     @Bean
     @ServiceConnection
-    public PostgreSQLContainer<?> postgresContainer() {
-        return new PostgreSQLContainer<>(DockerImageName.parse("postgres:16-alpine"))
+    public PostgreSQLContainer postgresContainer() {
+        return new PostgreSQLContainer(DockerImageName.parse("postgres:16-alpine"))
             .withDatabaseName("testdb")
             .withUsername("test")
             .withPassword("test");
@@ -26,6 +26,12 @@ public class TestContainerConfig {
 
 Apply with `@Import(TestContainerConfig.class)` on test classes.
 
+Imports (Testcontainers 2.x): container classes are non-generic and live in modular packages —
+`org.testcontainers.postgresql.PostgreSQLContainer`, `org.testcontainers.mysql.MySQLContainer`,
+`org.testcontainers.mongodb.MongoDBContainer`, `org.testcontainers.kafka.KafkaContainer`.
+The legacy aliases in `org.testcontainers.containers` and the `String` constructors are deprecated;
+use `DockerImageName.parse(...)`.
+
 ## Traditional `@DynamicPropertySource`
 
 ```java
@@ -33,7 +39,7 @@ Apply with `@Import(TestContainerConfig.class)` on test classes.
 class UserServiceIntegrationTest {
 
     @Container
-    static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>(
+    static PostgreSQLContainer postgres = new PostgreSQLContainer(
         DockerImageName.parse("postgres:16-alpine"))
         .withDatabaseName("testdb")
         .withUsername("test")
@@ -55,8 +61,8 @@ class UserServiceIntegrationTest {
 class MultiContainerIntegrationTest {
 
     @Container
-    static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>(
-        "postgres:16-alpine")
+    static PostgreSQLContainer postgres = new PostgreSQLContainer(
+        DockerImageName.parse("postgres:16-alpine"))
         .withDatabaseName("testdb");
 
     @Container
@@ -79,7 +85,7 @@ class MultiContainerIntegrationTest {
 @Testcontainers(disableWithoutDocker = true)
 class ContainerConfig {
 
-    static final PostgreSQLContainer<?> POSTGRES = new PostgreSQLContainer<>(
+    static final PostgreSQLContainer POSTGRES = new PostgreSQLContainer(
         DockerImageName.parse("postgres:16-alpine"))
         .withDatabaseName("testdb")
         .withUsername("test")
@@ -104,7 +110,7 @@ Enable reuse with environment variable: `TESTCONTAINERS_REUSE_ENABLE=true`
 
 ```java
 @Container
-static MySQLContainer<?> mysql = new MySQLContainer<>(
+static MySQLContainer mysql = new MySQLContainer(
     DockerImageName.parse("mysql:8.0"))
     .withDatabaseName("testdb")
     .withUsername("test")
@@ -115,7 +121,7 @@ static MySQLContainer<?> mysql = new MySQLContainer<>(
 
 ```java
 @Container
-static MongoDBContainer<?> mongodb = new MongoDBContainer<>(
+static MongoDBContainer mongodb = new MongoDBContainer(
     DockerImageName.parse("mongo:6.0"))
     .withExposedPorts(27017);
 ```
@@ -137,8 +143,8 @@ static void kafkaProperties(DynamicPropertyRegistry registry) {
 
 ```java
 @Container
-static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>(
-    "postgres:16-alpine")
+static PostgreSQLContainer postgres = new PostgreSQLContainer(
+    DockerImageName.parse("postgres:16-alpine"))
     .withDatabaseName("testdb")
     .withUsername("test")
     .withPassword("test")
@@ -150,8 +156,8 @@ static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>(
 
 ```java
 @Container
-static PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>(
-    "postgres:16-alpine")
+static PostgreSQLContainer postgres = new PostgreSQLContainer(
+    DockerImageName.parse("postgres:16-alpine"))
     .withNetwork(Network.SHARED)
     .withNetworkAliases("pgdb"); // Access via hostname
 ```

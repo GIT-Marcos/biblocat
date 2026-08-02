@@ -7,29 +7,32 @@ Select the most efficient test annotation for your use case:
 ```java
 // Use @DataJpaTest for repository-only tests (fastest)
 @DataJpaTest
-public class UserRepositoryTest { }
+public class UserRepositoryTest {
+}
 
 // Use @WebMvcTest for controller-only tests
 @WebMvcTest(UserController.class)
-public class UserControllerTest { }
+public class UserControllerTest {
+}
 
 // Use @SpringBootTest only for full integration testing
 @SpringBootTest
-public class UserServiceFullIntegrationTest { }
+public class UserServiceFullIntegrationTest {
+}
 ```
 
-## Use `@`ServiceConnection for Container Management (Spring Boot 3.5+)
+## Use @ServiceConnection for Container Management (Spring Boot 4.x)
 
 Prefer `@ServiceConnection` over manual `@DynamicPropertySource` for cleaner code:
 
 ```java
-// Good - Spring Boot 3.5+
+// Good - Spring Boot 4.x
 @TestConfiguration
 public class TestConfig {
     @Bean
     @ServiceConnection
-    public PostgreSQLContainer<?> postgres() {
-        return new PostgreSQLContainer<>(DockerImageName.parse("postgres:16-alpine"));
+    public PostgreSQLContainer postgres() {
+        return new PostgreSQLContainer(DockerImageName.parse("postgres:16-alpine"));
     }
 }
 
@@ -69,6 +72,7 @@ void testUserExists() {
 Mark test classes with `@Transactional` for automatic rollback, but understand the implications:
 
 ```java
+
 @SpringBootTest
 @Transactional  // Automatically rolls back after each test
 public class UserControllerIntegrationTest {
@@ -76,13 +80,14 @@ public class UserControllerIntegrationTest {
     @Test
     void shouldCreateUser() throws Exception {
         // Changes will be rolled back after test
-        mockMvc.perform(post("/api/users")....)
-            .andExpect(status().isCreated());
+        mvc.post().uri("/api/users")...
+            .expectStatus().isCreated();
     }
 }
 ```
 
-**Note**: Be aware that `@Transactional` test behavior may differ from production due to lazy loading and flush semantics.
+**Note**: Be aware that `@Transactional` test behavior may differ from production due to lazy loading and flush
+semantics.
 
 ## Organize Tests by Layer
 
@@ -90,16 +95,20 @@ Group related tests in separate classes to optimize context caching:
 
 ```java
 // Repository tests (uses @DataJpaTest)
-public class UserRepositoryTest { }
+public class UserRepositoryTest {
+}
 
 // Controller tests (uses @WebMvcTest)
-public class UserControllerTest { }
+public class UserControllerTest {
+}
 
 // Service tests (uses mocks, no context)
-public class UserServiceTest { }
+public class UserServiceTest {
+}
 
 // Full integration tests (uses @SpringBootTest)
-public class UserFullIntegrationTest { }
+public class UserFullIntegrationTest {
+}
 ```
 
 ## Use Meaningful Assertions
@@ -109,19 +118,32 @@ Leverage AssertJ for readable, fluent assertions:
 ```java
 // Good - Clear, readable assertions
 assertThat(user.getEmail())
-    .isEqualTo("test@example.com");
+        .
+
+isEqualTo("test@example.com");
 
 assertThat(users)
-    .hasSize(3)
-    .contains(expectedUser);
+    .
 
-assertThatThrownBy(() -> userService.save(invalidUser))
-    .isInstanceOf(ValidationException.class)
-    .hasMessageContaining("Email is required");
+hasSize(3)
+    .
+
+contains(expectedUser);
+
+assertThatThrownBy(() ->userService.
+
+save(invalidUser))
+        .
+
+isInstanceOf(ValidationException .class)
+    .
+
+hasMessageContaining("Email is required");
 
 // Avoid - JUnit assertions
-assertEquals("test@example.com", user.getEmail());
-assertTrue(users.size() == 3);
+assertEquals("test@example.com",user.getEmail());
+
+assertTrue(users.size() ==3);
 ```
 
 ## Mock External Dependencies
@@ -131,10 +153,10 @@ Mock external services but use real databases for integration tests:
 ```java
 // Good - Mock external services, use real DB
 @SpringBootTest
-@TestContainerConfig.class
+@Import(TestContainerConfig.class)
 public class OrderServiceTest {
 
-    @MockBean
+    @MockitoBean
     private EmailService emailService;
 
     @Autowired
@@ -192,6 +214,7 @@ void shouldSaveUser() {
 Use `@DisplayName` and comments for complex test logic:
 
 ```java
+
 @Test
 @DisplayName("Should validate email format and reject duplicates with proper error message")
 void shouldValidateEmailBeforePersisting() {
@@ -209,8 +232,8 @@ void shouldValidateEmailBeforePersisting() {
         userRepository.save(user2);
         userRepository.flush();
     })
-    .isInstanceOf(DataIntegrityViolationException.class)
-    .hasMessageContaining("unique constraint");
+            .isInstanceOf(DataIntegrityViolationException.class)
+            .hasMessageContaining("unique constraint");
 }
 ```
 
@@ -220,17 +243,19 @@ void shouldValidateEmailBeforePersisting() {
 // Avoid: Using @DirtiesContext without reason (forces context rebuild)
 @SpringBootTest
 @DirtiesContext  // DON'T USE unless absolutely necessary
-public class ProblematicTest { }
+public class ProblematicTest {
+}
 
 // Avoid: Mixing multiple profiles in same test suite
 @SpringBootTest(properties = "spring.profiles.active=dev,test,prod")
-public class MultiProfileTest { }
+public class MultiProfileTest {
+}
 
 // Avoid: Starting containers manually
 @SpringBootTest
 public class ManualContainerTest {
     static {
-        PostgreSQLContainer<?> postgres = new PostgreSQLContainer<>();
+        PostgreSQLContainer postgres = new PostgreSQLContainer(DockerImageName.parse("postgres:16-alpine"));
         postgres.start();  // Avoid - use @ServiceConnection instead
     }
 }
@@ -238,7 +263,8 @@ public class ManualContainerTest {
 // Good: Consistent configuration, minimal context switching
 @SpringBootTest
 @TestContainerConfig
-public class ProperTest { }
+public class ProperTest {
+}
 ```
 
 ## Test Naming Conventions
@@ -246,12 +272,14 @@ public class ProperTest { }
 Convention: Use descriptive method names that start with `should` or `test` to make test intent explicit.
 
 **Naming Rules:**
+
 - **Prefix**: Start with `should` or `test` to clearly indicate test purpose
 - **Structure**: Use camelCase for readability (no underscores)
 - **Clarity**: Name should indicate what is being tested and the expected outcome
 - **Example pattern**: `should[ExpectedBehavior]When[Condition]()`
 
 **Examples:**
+
 ```
 shouldReturnUsersJson()
 shouldThrowNotFoundWhenIdDoesntExist()

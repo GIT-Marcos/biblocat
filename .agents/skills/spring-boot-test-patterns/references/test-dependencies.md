@@ -5,6 +5,7 @@
 ### Basic Testing Setup
 
 ```xml
+
 <dependencies>
     <!-- Spring Boot Test Starter (includes JUnit 5, Mockito, AssertJ) -->
     <dependency>
@@ -13,27 +14,31 @@
         <scope>test</scope>
     </dependency>
 
-    <!-- Testcontainers Core -->
+    <!-- Spring Boot Testcontainers integration (@ServiceConnection) -->
+    <dependency>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-testcontainers</artifactId>
+        <scope>test</scope>
+    </dependency>
+
+    <!-- Testcontainers JUnit 5 integration -->
     <dependency>
         <groupId>org.testcontainers</groupId>
-        <artifactId>junit-jupiter</artifactId>
-        <version>1.19.0</version>
+        <artifactId>testcontainers-junit-jupiter</artifactId>
         <scope>test</scope>
     </dependency>
 
     <!-- PostgreSQL Testcontainers -->
     <dependency>
         <groupId>org.testcontainers</groupId>
-        <artifactId>postgresql</artifactId>
-        <version>1.19.0</version>
+        <artifactId>testcontainers-postgresql</artifactId>
         <scope>test</scope>
     </dependency>
 
     <!-- MySQL Testcontainers -->
     <dependency>
         <groupId>org.testcontainers</groupId>
-        <artifactId>mysql</artifactId>
-        <version>1.19.0</version>
+        <artifactId>testcontainers-mysql</artifactId>
         <scope>test</scope>
     </dependency>
 
@@ -56,9 +61,12 @@ dependencies {
     // Spring Boot Test Starter
     testImplementation("org.springframework.boot:spring-boot-starter-test")
 
+    // Spring Boot Testcontainers integration (@ServiceConnection)
+    testImplementation("org.springframework.boot:spring-boot-testcontainers")
+
     // Testcontainers
-    testImplementation("org.testcontainers:junit-jupiter:1.19.0")
-    testImplementation("org.testcontainers:postgresql:1.19.0")
+    testImplementation("org.testcontainers:testcontainers-junit-jupiter")
+    testImplementation("org.testcontainers:testcontainers-postgresql")
 
     // Additional Dependencies
     implementation("org.springframework.boot:spring-boot-starter-data-jpa")
@@ -68,15 +76,19 @@ dependencies {
 
 ## Version Selection
 
-- **Spring Boot 3.x**: Use Testcontainers 1.19.x+
-- **Spring Boot 2.x**: Use Testcontainers 1.17.x
-- Always check [Testcontainers Documentation](https://www.testcontainers.org/) for latest versions
+- **Spring Boot 4.x**: Testcontainers 2.x, version managed by the Spring Boot BOM (property
+  `${testcontainers.version}`). ArtifactIds use the `testcontainers-` prefix (`testcontainers-junit-jupiter`,
+  `testcontainers-postgresql`, ...) — the classic 1.x names (`junit-jupiter`, `postgresql`) do not exist in 2.x.
+- **Spring Boot 3.x**: Testcontainers 1.19.x-1.21.x (classic artifactIds)
+- **Spring Boot 2.x**: Testcontainers 1.17.x
+- Always check [Testcontainers Documentation](https://testcontainers.org/) for latest versions
 
 ## Optional Testing Dependencies
 
 ### H2 In-Memory Database
 
 ```xml
+
 <dependency>
     <groupId>com.h2database</groupId>
     <artifactId>h2</artifactId>
@@ -87,6 +99,7 @@ dependencies {
 ### WireMock for HTTP Mocking
 
 ```xml
+
 <dependency>
     <groupId>org.wiremock</groupId>
     <artifactId>wiremock-standalone</artifactId>
@@ -98,6 +111,7 @@ dependencies {
 ### Awaitility for Async Testing
 
 ```xml
+
 <dependency>
     <groupId>org.awaitility</groupId>
     <artifactId>awaitility</artifactId>

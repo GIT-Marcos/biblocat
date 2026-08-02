@@ -73,16 +73,16 @@ class UserRepositoryIntegrationTest {
 class UserControllerTest {
 
     @Autowired
-    private MockMvc mockMvc;
+    private MockMvcTester mvc;
 
     @Autowired
     private ObjectMapper objectMapper;
 
-    @MockBean
+    @MockitoBean
     private UserService userService;
 
     @Test
-    void shouldGetUserById() throws Exception {
+    void shouldGetUserById() {
         // Arrange
         User user = new User();
         user.setId(1L);
@@ -92,21 +92,21 @@ class UserControllerTest {
         when(userService.findById(1L)).thenReturn(Optional.of(user));
 
         // Act & Assert
-        mockMvc.perform(get("/api/users/1"))
-            .andExpect(status().isOk())
-            .andExpect(jsonPath("$.id").value(1))
-            .andExpect(jsonPath("$.email").value("test@example.com"))
-            .andExpect(jsonPath("$.name").value("Test User"));
+        mvc.get().uri("/api/users/1")
+            .expectStatus().isOk()
+            .expectBody().jsonPath("$.id").isEqualTo(1)
+            .jsonPath("$.email").isEqualTo("test@example.com")
+            .jsonPath("$.name").isEqualTo("Test User");
     }
 
     @Test
-    void shouldReturn404WhenUserNotFound() throws Exception {
+    void shouldReturn404WhenUserNotFound() {
         // Arrange
         when(userService.findById(999L)).thenReturn(Optional.empty());
 
         // Act & Assert
-        mockMvc.perform(get("/api/users/999"))
-            .andExpect(status().isNotFound());
+        mvc.get().uri("/api/users/999")
+            .expectStatus().isNotFound();
     }
 
     @Test
@@ -124,12 +124,12 @@ class UserControllerTest {
         when(userService.createUser(any())).thenReturn(createdUser);
 
         // Act & Assert
-        mockMvc.perform(post("/api/users")
-                .contentType(MediaType.APPLICATION_JSON)
-                .content(objectMapper.writeValueAsString(request)))
-            .andExpect(status().isCreated())
-            .andExpect(jsonPath("$.id").exists())
-            .andExpect(jsonPath("$.email").value("new@example.com"));
+        mvc.post().uri("/api/users")
+            .contentType(MediaType.APPLICATION_JSON)
+            .content(objectMapper.writeValueAsString(request))
+            .expectStatus().isCreated()
+            .expectBody().jsonPath("$.id").exists()
+            .jsonPath("$.email").isEqualTo("new@example.com");
     }
 
     @Test
@@ -139,10 +139,10 @@ class UserControllerTest {
         request.setEmail(""); // Invalid
 
         // Act & Assert
-        mockMvc.perform(post("/api/users")
-                .contentType(MediaType.APPLICATION_JSON)
-                .content(objectMapper.writeValueAsString(request)))
-            .andExpect(status().isBadRequest());
+        mvc.post().uri("/api/users")
+            .contentType(MediaType.APPLICATION_JSON)
+            .content(objectMapper.writeValueAsString(request))
+            .expectStatus().isBadRequest();
     }
 }
 ```
@@ -204,7 +204,7 @@ class ReactiveUserControllerTest {
     @Autowired
     private WebTestClient webTestClient;
 
-    @MockBean
+    @MockitoBean
     private UserService userService;
 
     @Test
@@ -246,21 +246,21 @@ class ReactiveUserControllerTest {
 class UserControllerExceptionTest {
 
     @Autowired
-    private MockMvc mockMvc;
+    private MockMvcTester mvc;
 
-    @MockBean
+    @MockitoBean
     private UserService userService;
 
     @Test
-    void shouldHandleUserNotFoundException() throws Exception {
+    void shouldHandleUserNotFoundException() {
         // Arrange
         when(userService.findById(999L))
             .thenThrow(new UserNotFoundException("User not found"));
 
         // Act & Assert
-        mockMvc.perform(get("/api/users/999"))
-            .andExpect(status().isNotFound())
-            .andExpect(jsonPath("$.message").value("User not found"));
+        mvc.get().uri("/api/users/999")
+            .expectStatus().isNotFound()
+            .expectBody().jsonPath("$.message").isEqualTo("User not found");
     }
 }
 ```

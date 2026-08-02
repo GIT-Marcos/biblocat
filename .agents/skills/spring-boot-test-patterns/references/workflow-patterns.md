@@ -55,16 +55,16 @@ public class UserRepositoryIntegrationTest {
 
 ## Complete REST API Integration Test Pattern
 
-**Scenario**: Test REST controllers with full Spring context using MockMvc.
+**Scenario**: Test REST controllers with full Spring context using MockMvcTester.
 
 ```java
 @SpringBootTest
 @AutoConfigureMockMvc
-@Transactional
+// No @Transactional: it hides the real commit behavior. Clean up explicitly instead.
 public class UserControllerIntegrationTest {
 
     @Autowired
-    private MockMvc mockMvc;
+    private MockMvcTester mvc;
 
     @Autowired
     private ObjectMapper objectMapper;
@@ -83,17 +83,17 @@ public class UserControllerIntegrationTest {
         user.setEmail("newuser@example.com");
         user.setName("New User");
 
-        mockMvc.perform(post("/api/users")
-                .contentType(MediaType.APPLICATION_JSON)
-                .content(objectMapper.writeValueAsString(user)))
-            .andExpect(status().isCreated())
-            .andExpect(jsonPath("$.id").exists())
-            .andExpect(jsonPath("$.email").value("newuser@example.com"))
-            .andExpect(jsonPath("$.name").value("New User"));
+        mvc.post().uri("/api/users")
+            .contentType(MediaType.APPLICATION_JSON)
+            .content(objectMapper.writeValueAsString(user))
+            .expectStatus().isCreated()
+            .expectBody().jsonPath("$.id").exists()
+            .jsonPath("$.email").isEqualTo("newuser@example.com")
+            .jsonPath("$.name").isEqualTo("New User");
     }
 
     @Test
-    void shouldReturnUserById() throws Exception {
+    void shouldReturnUserById() {
         // Arrange
         User user = new User();
         user.setEmail("existing@example.com");
@@ -101,18 +101,18 @@ public class UserControllerIntegrationTest {
         User saved = userRepository.save(user);
 
         // Act & Assert
-        mockMvc.perform(get("/api/users/" + saved.getId())
-                .contentType(MediaType.APPLICATION_JSON))
-            .andExpect(status().isOk())
-            .andExpect(jsonPath("$.email").value("existing@example.com"))
-            .andExpect(jsonPath("$.name").value("Existing User"));
+        mvc.get().uri("/api/users/" + saved.getId())
+            .contentType(MediaType.APPLICATION_JSON)
+            .expectStatus().isOk()
+            .expectBody().jsonPath("$.email").isEqualTo("existing@example.com")
+            .jsonPath("$.name").isEqualTo("Existing User");
     }
 
     @Test
-    void shouldReturnNotFoundForMissingUser() throws Exception {
-        mockMvc.perform(get("/api/users/99999")
-                .contentType(MediaType.APPLICATION_JSON))
-            .andExpect(status().isNotFound());
+    void shouldReturnNotFoundForMissingUser() {
+        mvc.get().uri("/api/users/99999")
+            .contentType(MediaType.APPLICATION_JSON)
+            .expectStatus().isNotFound();
     }
 
     @Test
@@ -127,15 +127,15 @@ public class UserControllerIntegrationTest {
         updateData.setName("Updated Name");
 
         // Act & Assert
-        mockMvc.perform(put("/api/users/" + saved.getId())
-                .contentType(MediaType.APPLICATION_JSON)
-                .content(objectMapper.writeValueAsString(updateData)))
-            .andExpect(status().isOk())
-            .andExpect(jsonPath("$.name").value("Updated Name"));
+        mvc.put().uri("/api/users/" + saved.getId())
+            .contentType(MediaType.APPLICATION_JSON)
+            .content(objectMapper.writeValueAsString(updateData))
+            .expectStatus().isOk()
+            .expectBody().jsonPath("$.name").isEqualTo("Updated Name");
     }
 
     @Test
-    void shouldDeleteUserAndReturn204() throws Exception {
+    void shouldDeleteUserAndReturn204() {
         // Arrange
         User user = new User();
         user.setEmail("delete@example.com");
@@ -143,8 +143,8 @@ public class UserControllerIntegrationTest {
         User saved = userRepository.save(user);
 
         // Act & Assert
-        mockMvc.perform(delete("/api/users/" + saved.getId()))
-            .andExpect(status().isNoContent());
+        mvc.delete().uri("/api/users/" + saved.getId())
+            .expectStatus().isNoContent();
 
         assertThat(userRepository.findById(saved.getId())).isEmpty();
     }
@@ -282,7 +282,7 @@ public class ReactiveUserControllerIntegrationTest {
 
 ## Testcontainers Configuration Patterns
 
-### `@`ServiceConnection Pattern (Spring Boot 3.5+)
+### @ServiceConnection Pattern (Spring Boot 4.x)
 
 ```java
 @TestConfiguration
@@ -290,8 +290,8 @@ public class TestContainerConfig {
 
     @Bean
     @ServiceConnection
-    public PostgreSQLContainer<?> postgresContainer() {
-        return new PostgreSQLContainer<>(DockerImageName.parse("postgres:16-alpine"))
+    public PostgreSQLContainer postgresContainer() {
+        return new PostgreSQLContainer(DockerImageName.parse("postgres:16-alpine"))
             .withDatabaseName("testdb")
             .withUsername("test")
             .withPassword("test");
@@ -300,11 +300,11 @@ public class TestContainerConfig {
 }
 ```
 
-### `@`DynamicPropertySource Pattern (Legacy)
+### @DynamicPropertySource Pattern (Legacy)
 
 ```java
 public class SharedContainers {
-    static final PostgreSQLContainer<?> POSTGRES = new PostgreSQLContainer<>(DockerImageName.parse("postgres:16-alpine"))
+    static final PostgreSQLContainer POSTGRES = new PostgreSQLContainer(DockerImageName.parse("postgres:16-alpine"))
         .withDatabaseName("testdb")
         .withUsername("test")
         .withPassword("test");

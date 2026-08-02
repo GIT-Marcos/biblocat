@@ -7,18 +7,22 @@
 - `@SpringBootTest(webEnvironment = WebEnvironment.RANDOM_PORT)`: Full test with random HTTP port
 - `@SpringBootTest(webEnvironment = WebEnvironment.MOCK)`: Full test with mock web environment
 - `@DataJpaTest`: Load only JPA components (repositories, entities)
-- `@WebMvcTest`: Load only MVC layer (controllers, `@`ControllerAdvice)
+- `@WebMvcTest`: Load only MVC layer (controllers, `@ControllerAdvice`)
 - `@WebFluxTest`: Load only WebFlux layer (reactive controllers)
 - `@JsonTest`: Load only JSON serialization components
 - `@RestClientTest`: Load only REST client components
-- `@AutoConfigureMockMvc`: Provide MockMvc bean in `@`SpringBootTest
+- `@AutoConfigureMockMvc`: Provide MockMvcTester bean in `@SpringBootTest`
 - `@AutoConfigureWebTestClient`: Provide WebTestClient bean for WebFlux tests
 - `@AutoConfigureTestDatabase`: Control test database configuration
 
+**Mockito Bean Overrides:**
+- `@MockitoBean`: Replace a Spring bean with a Mockito mock (Spring Boot 4.x; replaces deprecated `@MockBean`)
+- `@MockitoSpyBean`: Replace a Spring bean with a Mockito spy (Spring Boot 4.x)
+
 **Testcontainer Annotations:**
-- `@ServiceConnection`: Wire Testcontainer to Spring Boot test (Spring Boot 3.5+)
-- `@DynamicPropertySource`: Register dynamic properties at runtime
-- `@Container`: Mark field as Testcontainer (requires `@`Testcontainers)
+- `@ServiceConnection`: Wire Testcontainer to Spring Boot test (Spring Boot 4.x)
+- `@DynamicPropertySource`: Legacy property registration; prefer `@ServiceConnection`
+- `@Container`: Mark field as Testcontainer (requires `@Testcontainers`)
 - `@Testcontainers`: Enable Testcontainers lifecycle management
 
 **Test Lifecycle Annotations:**
@@ -36,12 +40,12 @@
 
 ## Common Test Utilities
 
-**MockMvc Methods:**
-- `mockMvc.perform(get("/path"))`: Perform GET request
-- `mockMvc.perform(post("/path")).contentType(MediaType.APPLICATION_JSON)`: POST with content type
-- `.andExpect(status().isOk())`: Assert HTTP status
-- `.andExpect(content().contentType("application/json"))`: Assert content type
-- `.andExpect(jsonPath("$.field").value("expected"))`: Assert JSON path value
+**MockMvcTester Methods (AssertJ-style, Spring Boot 4.x):**
+- `mvc.get().uri("/path").exchange()`: Perform GET request
+- `mvc.post().uri("/path").contentType(MediaType.APPLICATION_JSON).content(body)`: POST with content type
+- `.expectStatus().isOk()`: Assert HTTP status
+- `.expectBody().jsonPath("$.field").isEqualTo("expected")`: Assert JSON path value
+- `.hasBodyTextEqualTo("...")`: Assert exact body text
 
 **TestRestTemplate Methods:**
 - `restTemplate.getForEntity("/path", String.class)`: GET request
@@ -63,12 +67,13 @@
 
 ## Common Test Annotations Reference
 
-| Annotation | Purpose | When to Use |
-|------------|---------|-------------|
-| `@SpringBootTest` | Full application context | Full integration tests only |
-| `@DataJpaTest` | JPA components only | Repository and entity tests |
-| `@WebMvcTest` | MVC layer only | Controller tests |
-| `@WebFluxTest` | WebFlux layer only | Reactive controller tests |
-| `@ServiceConnection` | Container integration | Spring Boot 3.5+ with Testcontainers |
-| `@DynamicPropertySource` | Dynamic properties | Pre-3.5 or custom configuration |
-| `@DirtiesContext` | Context cleanup | When absolutely necessary |
+| Annotation               | Purpose                    | When to Use                                            |
+|--------------------------|----------------------------|--------------------------------------------------------|
+| `@SpringBootTest`        | Full application context   | Full integration tests only                            |
+| `@DataJpaTest`           | JPA components only        | Repository and entity tests                            |
+| `@WebMvcTest`            | MVC layer only             | Controller tests                                       |
+| `@WebFluxTest`           | WebFlux layer only         | Reactive controller tests                              |
+| `@MockitoBean`           | Mockito mock bean override | Spring context tests (replaces deprecated `@MockBean`) |
+| `@ServiceConnection`     | Container integration      | Spring Boot 4.x with Testcontainers                    |
+| `@DynamicPropertySource` | Dynamic properties         | Legacy or custom configuration                         |
+| `@DirtiesContext`        | Context cleanup            | When absolutely necessary                              |
