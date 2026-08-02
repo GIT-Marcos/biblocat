@@ -874,14 +874,21 @@ producción. Ver `architecture.md §5.1`.
 
 ### 8.2. Stack de testing y dependencias
 
-| Dependencia                        | Propósito                                                             | Scope |
-|------------------------------------|-----------------------------------------------------------------------|-------|
-| `spring-boot-starter-test`         | JUnit 5, Mockito, AssertJ, json-path, MockMvc (ya presente en el pom) | test  |
-| `spring-boot-testcontainers`       | Anotación `@ServiceConnection` (Spring Boot 4.1)                      | test  |
-| `org.testcontainers:postgresql`    | Contenedor PostgreSQL                                                 | test  |
-| `org.testcontainers:junit-jupiter` | Lifecycle JUnit 5 (`@Testcontainers`, `@Container`)                   | test  |
+| Dependencia                          | Propósito                                                                     | Scope |
+|--------------------------------------|-------------------------------------------------------------------------------|-------|
+| `spring-boot-starter-test`           | JUnit 5, Mockito, AssertJ, json-path (ya presente en el pom)                  | test  |
+| `spring-boot-starter-webmvc-test`    | Autoconfig de MVC para tests (`@WebMvcTest`, `@AutoConfigureMockMvc`) — en Boot 4.x ya no está incluido en starter-test | test |
+| `spring-boot-testcontainers`         | Anotación `@ServiceConnection` (Spring Boot 4.1)                              | test  |
+| `org.testcontainers:testcontainers-junit-jupiter` | Integración JUnit 5                         | test  |
+| `org.testcontainers:testcontainers-postgresql`    | Contenedor PostgreSQL                         | test  |
 
-Las versiones de Testcontainers se gestionan por el BOM de Spring Boot 4.1 — no se declaran versiones propias.
+**Versionado de Testcontainers:** en Boot 4.1 la versión viene gestionada por el parent BOM vía la propiedad
+`${testcontainers.version}` (= 2.0.5). Los BOM anidados del parent **no son transitivos** para `scope=import`
+(MNG-5090), por lo que el `pom.xml` declara un `dependencyManagement` propio que importa `testcontainers-bom`
+usando esa propiedad. No se hardcodea ninguna versión.
+
+**ArtifactIds de Testcontainers 2.x:** los nombres clásicos de 1.x (`junit-jupiter`, `postgresql`) no existen;
+el prefijo `testcontainers-` es obligatorio.
 
 **Requisitos de entorno:**
 
@@ -904,17 +911,21 @@ soft-delete, el índice único parcial y la transferencia de metadatos por hash 
 
 **Configuración base:**
 
-- Anotaciones: `@SpringBootTest` + `@AutoConfigureMockMvc` + `@Testcontainers` con `@Container static` +
+- Anotaciones: `@SpringBootTest` + `@AutoConfigureMockMvc` + `@Import(TestContainerConfig.class)`, donde
+  `TestContainerConfig` es una `@TestConfiguration` que declara el `PostgreSQLContainer` como bean con
   `@ServiceConnection`.
-- Un único contenedor estático por suite (context caching de Spring; nunca un contenedor por clase).
+- Un único contenedor compartido por toda la suite (context caching de Spring; nunca un contenedor por clase).
 - Flyway corre automáticamente sobre el contenedor al levantar el contexto.
 - `MockMvcTester` se inyecta automáticamente con `@AutoConfigureMockMvc`.
+- Clases anotadas con `@Tag("integration")` para poder excluirlas sin Docker.
 
 **Limpieza de datos:**
 
-- `@BeforeEach` con `DELETE` explícito en orden de FKs: `source_tags` → `sources` → `tags` → `authors` →
-  `reconciliation`.
-- La fila seed de `reconciliation` (`id = 1`, insertada por `V0001`) **se preserva**.
+- `@BeforeEach` con `DELETE` explícito en orden de FKs: `source_tags` → `sources` → `tags` → `authors`.
+- La fila seed de `reconciliation` (`id = 1`, insertada por `V0001`) **se preserva**; se resetea con
+  `UPDATE reconciliation SET pending = false` (el `DELETE` violaría el CHECK `id = 1`).
+- Los estados que requieren metadatos (year/edition/url, tags, soft-delete, pathLower duplicado) se preparan
+  directamente con `JdbcTemplate` (las queries nativas del dominio se ejercitan así igualmente).
 
 **Prohibiciones:**
 
@@ -970,14 +981,14 @@ Verifican la capa web sin levantar la base de datos: validación de entrada, ser
 
 ### 8.4. Convenciones
 
-| Regla             | Valor                                                                                                   |
-|-------------------|---------------------------------------------------------------------------------------------------------|
-| Naming            | Sufijo `Test`; paquete espejo de `main` (`com.biblocat.api.controller`, `com.biblocat.api.integration`) |
-| Determinismo      | UUIDs fijos en los fixtures; datos inicializados explícitamente en `@BeforeEach`                        |
-| Estilo de asserts | AssertJ + `MockMvcTester` fluido (`hasStatusOk()`, `bodyJson().isEqualTo(...)`)                         |
-| Tagging           | `@Tag("integration")` en clases que requieren Docker (permite exclusión sin Docker, ver §8.2)           |
-| Contenedor        | Único contenedor estático compartido por toda la suite; nunca por clase                                 |
-| Prohibido         | `@DirtiesContext`, `@Transactional` en integración, tests que dependen del orden de ejecución           |
+| Regla             | Valor                                                                                                                                                                                |
+|-------------------|--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| Naming            | Sufijo `Test`; paquete espejo de `main` (`com.biblocat.api.controller`, `com.biblocat.api.integration`)                                                                              |
+| Determinismo      | Datos inicializados explícitamente en `@BeforeEach` (integración) o con `JdbcTemplate` por test                                                                                      |
+| Estilo de asserts | AssertJ + `MockMvcTester`: `assertThat(...exchange()).hasStatus(HttpStatus.X)`; body verificado con Jackson (`JsonNode`) o `jdbcTemplate` (Jackson `non_null` oculta nulls del JSON) |
+| Tagging           | `@Tag("integration")` en clases que requieren Docker (permite exclusión sin Docker, ver §8.2)                                                                                        |
+| Contenedor        | Único contenedor compartido por toda la suite; nunca por clase                                                                                                                       |
+| Prohibido         | `@DirtiesContext`, `@Transactional` en integración, tests que dependen del orden de ejecución                                                                                        |
 
 ### 8.5. Criterio de suficiencia
 
@@ -988,8 +999,29 @@ La estrategia de testing se considera completa cuando:
    §8.3.2).
 3. **Regla anti-crecimiento:** no se agregan tests que dupliquen cobertura ya existente sin justificación.
 
-### 8.6. Pendientes
+### 8.6. Estado de la implementación
 
-- Incorporar las dependencias de §8.2 al `pom.xml` (`spring-boot-testcontainers`, `testcontainers-postgresql`,
-  `testcontainers-junit-jupiter`) — necesarias para ejecutar la estrategia.
+La suite está implementada y compila; los slice tests están verdes (30 tests). Pendiente de ejecución: los tests
+de integración (55 tests) requieren Docker Desktop.
+
+**Implementado:**
+
+- Dependencias de test en `api/pom.xml` (§8.2), con `dependencyManagement` del BOM de Testcontainers.
+- Infraestructura: `TestContainerConfig`, `AbstractPostgresIntegrationTest`, `ContextSmokeIntegrationTest`.
+- `SourceReconcileIntegrationTest` (reconcile: batch, orden, transferencia por hash, matriz de errores,
+  REACTIVATE/CREATE/DUPLICATE_PATH) — 13 tests.
+- `SourceQueryIntegrationTest` (paths, listado con filtros, paginación real y clamp, getById, PATCH, purge,
+  PUT tags) — 25 tests.
+- `TagAuthorReconciliationIntegrationTest` (CRUD tags con normalización y cascade, authors, trío reconcile) —
+  15 tests.
+- Slice web: `SourceControllerTest` (17), `TagControllerTest` (8), `AuthorControllerTest` (2),
+  `ReconciliationControllerTest` (3) — 30 tests, ejecutables sin Docker.
+
+**Notas de la implementación:**
+
+- Boot 4.x movió la autoconfig de MVC a `spring-boot-starter-webmvc-test`; `@WebMvcTest` y
+  `@AutoConfigureMockMvc` viven en `org.springframework.boot.webmvc.test.autoconfigure`.
+- Jackson 3.x: los tests importan `tools.jackson.databind.*`.
+- `validatePagination` reporta todo sort inválido como `invalid-pagination-parameter`
+  (`docs/issues/ISSUE-06`); los tests reflejan el comportamiento actual.
 - Definir la versión de PostgreSQL de producción (§1.3). La versión probada en tests es `16`.
