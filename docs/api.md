@@ -96,6 +96,12 @@ Lista paginada de sources con filtros.
 }
 ```
 
+**Errors:**
+
+| Código | Causa                                                                                                                                                   |
+|--------|---------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `400`  | Parámetros de paginación inválidos (`page`/`size` no numéricos, `page` negativo, `size` < 1, `sort` con formato, campo o dirección inválidos). Ver §3.5 |
+
 ---
 
 #### `GET /api/sources/{id}`
@@ -133,10 +139,10 @@ petición. No es merge parcial — los valores ausentes se interpretan como `nul
 }
 ```
 
-| Campo     | Tipo            | Requerido | Descripción                                                            |
-|-----------|-----------------|-----------|------------------------------------------------------------------------|
-| `year`    | `integer`       | sí        | Año de publicación. `null` limpia el valor                             |
-| `edition` | `string` (50)   | sí        | Edición. `null` limpia el valor                                        |
+| Campo     | Tipo            | Requerido | Descripción                                                                                                                  |
+|-----------|-----------------|-----------|------------------------------------------------------------------------------------------------------------------------------|
+| `year`    | `integer`       | sí        | Año de publicación. `null` limpia el valor                                                                                   |
+| `edition` | `string` (50)   | sí        | Edición. `null` limpia el valor                                                                                              |
 | `url`     | `string` (2048) | sí        | URL asociada. Debe ser HTTP/HTTPS si se provee. `null` limpia el valor. No enviar string vacío (`""`) — se rechazará con 400 |
 
 **Response `200 OK`:** Source actualizado (misma estructura que un item de listado).
@@ -597,6 +603,77 @@ com.biblocat.api
 
 ### 3.5. Paginación
 
+#### 3.5.1. Estilo
+
+Paginación **offset-based** con los parámetros `page`, `size` y `sort` (Spring Data `Pageable`).
+No se utiliza cursor/keyset. La página inicial es `0` (0-indexed).
+
+#### 3.5.2. Convención de query parameters
+
+| Parámetro | Tipo     | Default    | Reglas                                                                                                                                                                                                                                                                                                                                             |
+|-----------|----------|------------|----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `page`    | `int`    | `0`        | Página 0-indexed. Valor negativo o no numérico → `400`                                                                                                                                                                                                                                                                                             |
+| `size`    | `int`    | `20`       | Tamaño de página, mínimo 1. `size` no numérico o menor que 1 → `400`. Mayores a 100 se limitan silenciosamente a 100 (**clamp**, no es error)                                                                                                                                                                                                      |
+| `sort`    | `string` | `name,asc` | Formato `campo[,direccion]`, dirección `asc`/`desc` (case-insensitive) como último token separado por coma. Criterios múltiples: parámetros `sort` repetidos (ej. `sort=name,asc&sort=createdAt,desc`) o `sort=campo1,campo2,direccion` (dirección única al final). No se soporta el separador `:` (→ `400`). Cualquier token no permitido → `400` |
+
+#### 3.5.3. Campos ordenables
+
+Solo los siguientes campos pueden usarse en `sort`. Cualquier otro → `400`.
+
+| Campo         | Notas                                            |
+|---------------|--------------------------------------------------|
+| `name`        | Nombre del archivo                               |
+| `path`        | Path relativo                                    |
+| `fileFormat`  | Formato (PDF, EPUB, MHTML)                       |
+| `year`        | Año de publicación                               |
+| `createdAt`   | Fecha de creación del registro                   |
+| `updatedAt`   | Fecha de última modificación                     |
+| `author.name` | Nombre del autor. Orden por LEFT JOIN con `authors`: los sources sin autor se incluyen; con PostgreSQL los nulls quedan al final en ASC y al inicio en DESC |
+
+#### 3.5.4. Contrato de respuesta
+
+Todo endpoint paginado responde con exactamente estos 5 campos:
+
+| Campo           | Tipo    | Descripción                                                              |
+|-----------------|---------|--------------------------------------------------------------------------|
+| `content`       | `array` | Items de la página actual. Puede ser vacío si `page` excede `totalPages` |
+| `page`          | `int`   | Número de página actual (0-indexed)                                      |
+| `size`          | `int`   | Tamaño efectivo de página (con clamp aplicado)                           |
+| `totalElements` | `int`   | Total de elementos tras aplicar los filtros                              |
+| `totalPages`    | `int`   | `ceil(totalElements / size)`                                             |
+
+No se exponen los campos adicionales de Spring Data (`pageable`, `sort`, `first`, `last`,
+`numberOfElements`, `empty`).
+
+#### 3.5.5. Errores y casos límite
+
+| Caso                                    | Respuesta | Notas                                |
+|-----------------------------------------|-----------|--------------------------------------|
+| `page`/`size` no numéricos o `page` < 0 | `400`     | Type mismatch (RFC 9457, ver §6)     |
+| `size` no numérico o < 1                | `400`     | Mínimo 1 (RFC 9457, ver §6)          |
+| `sort` con formato inválido (ej. `name:asc`) | `400` | Separador `:` no soportado (RFC 9457, ver §6) |
+| `sort` con campo fuera de la lista      | `400`     | Campo no ordenable                   |
+| `sort` con dirección inválida           | `400`     | Solo `asc`/`desc`                    |
+| `page` > `totalPages`                   | `200`     | `content: []`, no es error           |
+
+#### 3.5.6. Política por endpoint
+
+| Endpoint                 | Paginación                | Motivo                                                    |
+|--------------------------|---------------------------|-----------------------------------------------------------|
+| `GET /api/sources`       | Sí (`page`/`size`/`sort`) | Único listado de alto volumen; consumido por el Frontend  |
+| `GET /api/authors`       | No — array plano          | Bajo volumen; consumido como combos                       |
+| `GET /api/tags`          | No — array plano          | Ídem                                                      |
+| `GET /api/sources/paths` | No — array plano          | Por diseño: el Agent necesita el conjunto completo (§2.1) |
+
+#### 3.5.7. Implementación de referencia
+
+- Controller: `@PageableDefault(size = 20, sort = "name", direction = Sort.Direction.ASC) Pageable pageable`.
+- Límites globales: `spring.data.web.pageable.default-page-size: 20` y
+  `spring.data.web.pageable.max-page-size: 100` en `application.yaml`.
+- Orden por `author.name` vía LEFT JOIN explícito en `SourcePaginationRepository` (los sources sin autor se incluyen).
+- Validación estricta de `page`/`size`/`sort` en el controller (400 RFC 9457).
+- El Frontend es el único consumidor de endpoints paginados (ver `front.md`).
+
 ## 4. Modelos
 
 ### 4.1. Diagrama entidad-relación
@@ -743,15 +820,17 @@ Ejemplo de respuesta `404`:
 
 ### 6.2. Tabla de excepciones
 
-| Excepción                         | HTTP | Disparo                                                                     |
-|-----------------------------------|------|-----------------------------------------------------------------------------|
-| `SourceNotFoundException`         | 404  | Source no encontrado por ID                                                 |
-| `TagNotFoundException`            | 404  | Tag no encontrado por ID                                                    |
-| `ActiveSourceException`           | 409  | Intento de purgar un source activo (`deleted_at IS NULL`)                   |
-| `TagAlreadyExistsException`       | 409  | Tag con ese nombre ya existe                                                |
-| `DuplicatePathException`          | 409  | `pathLower` ya existe como activo en `POST /api/sources/reconcile` (CREATE) |
-| `MethodArgumentNotValidException` | 400  | Validación `@Valid` falla en cualquier endpoint                             |
-| `Exception` (catch-all)           | 500  | Cualquier error no contemplado                                              |
+| Excepción                             | HTTP | Disparo                                                                     |
+|---------------------------------------|------|-----------------------------------------------------------------------------|
+| `SourceNotFoundException`             | 404  | Source no encontrado por ID                                                 |
+| `TagNotFoundException`                | 404  | Tag no encontrado por ID                                                    |
+| `ActiveSourceException`               | 409  | Intento de purgar un source activo (`deleted_at IS NULL`)                   |
+| `TagAlreadyExistsException`           | 409  | Tag con ese nombre ya existe                                                |
+| `DuplicatePathException`              | 409  | `pathLower` ya existe como activo en `POST /api/sources/reconcile` (CREATE) |
+| `MethodArgumentNotValidException`     | 400  | Validación `@Valid` falla en cualquier endpoint                             |
+| `InvalidSortFieldException`           | 400  | `sort` con campo fuera de la whitelist (§3.5.3)                             |
+| `InvalidPaginationParameterException` | 400  | `page`/`size`/dirección/formato de `sort` inválidos (§3.5.5)                |
+| `Exception` (catch-all)               | 500  | Cualquier error no contemplado                                              |
 
 ## 7. Perfiles YAML
 

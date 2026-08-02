@@ -1,11 +1,8 @@
 package com.biblocat.api.service;
 
-import com.biblocat.api.dto.request.ReconcileOperation;
-import com.biblocat.api.dto.request.ReconcileOperationType;
-import com.biblocat.api.dto.request.ReconcileRequest;
-import com.biblocat.api.dto.request.SourcePatchRequest;
-import com.biblocat.api.dto.request.SourceTagsRequest;
+import com.biblocat.api.dto.request.*;
 import com.biblocat.api.dto.response.OperationError;
+import com.biblocat.api.dto.response.PathsEntryResponse;
 import com.biblocat.api.dto.response.ReconcileResponse;
 import com.biblocat.api.dto.response.SourceResponse;
 import com.biblocat.api.entity.Author;
@@ -15,38 +12,35 @@ import com.biblocat.api.entity.Tag;
 import com.biblocat.api.exception.ActiveSourceException;
 import com.biblocat.api.exception.DuplicatePathException;
 import com.biblocat.api.exception.SourceNotFoundException;
-import com.biblocat.api.dto.response.PathsEntryResponse;
 import com.biblocat.api.exception.TagNotFoundException;
 import com.biblocat.api.mapper.SourceMapper;
+import com.biblocat.api.repository.SourcePaginationRepository;
 import com.biblocat.api.repository.SourceRepository;
 import com.biblocat.api.repository.TagRepository;
-
-import java.time.Clock;
-import java.util.ArrayList;
-import java.util.HashSet;
-import java.util.LinkedHashMap;
-import java.util.List;
-import java.util.Set;
-import java.util.UUID;
-import java.util.stream.Collectors;
-
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.Clock;
+import java.util.*;
+import java.util.stream.Collectors;
+
 @Service
 @Transactional
 public class SourceService {
 
     private final SourceRepository sourceRepository;
+    private final SourcePaginationRepository sourcePaginationRepository;
     private final AuthorService authorService;
     private final TagRepository tagRepository;
     private final Clock clock;
 
-    public SourceService(SourceRepository sourceRepository, AuthorService authorService, TagRepository tagRepository, Clock clock) {
+    public SourceService(SourceRepository sourceRepository, SourcePaginationRepository sourcePaginationRepository,
+                         AuthorService authorService, TagRepository tagRepository, Clock clock) {
         this.sourceRepository = sourceRepository;
+        this.sourcePaginationRepository = sourcePaginationRepository;
         this.authorService = authorService;
         this.tagRepository = tagRepository;
         this.clock = clock;
@@ -56,7 +50,7 @@ public class SourceService {
     public Page<SourceResponse> findAll(String q, UUID authorId, UUID tagId, FileFormat format,
                                         boolean includeDeleted, Pageable pageable) {
         Specification<Source> spec = SourceSpecifications.withFilter(q, authorId, tagId, format, includeDeleted);
-        return sourceRepository.findAll(spec, pageable).map(SourceMapper::toResponse);
+        return sourcePaginationRepository.findAll(spec, pageable).map(SourceMapper::toResponse);
     }
 
     @Transactional(readOnly = true)
@@ -169,8 +163,10 @@ public class SourceService {
     private void processCreate(ReconcileOperation op) {
         if (op.name() == null || op.name().isBlank()) throw new IllegalArgumentException("MISSING_NAME");
         if (op.path() == null || op.path().isBlank()) throw new IllegalArgumentException("MISSING_PATH");
-        if (op.pathLower() == null || op.pathLower().isBlank()) throw new IllegalArgumentException("MISSING_PATH_LOWER");
-        if (op.contentHash() == null || op.contentHash().isBlank()) throw new IllegalArgumentException("MISSING_CONTENT_HASH");
+        if (op.pathLower() == null || op.pathLower().isBlank())
+            throw new IllegalArgumentException("MISSING_PATH_LOWER");
+        if (op.contentHash() == null || op.contentHash().isBlank())
+            throw new IllegalArgumentException("MISSING_CONTENT_HASH");
         if (op.fileFormat() == null) throw new IllegalArgumentException("UNSUPPORTED_FORMAT");
 
         if (sourceRepository.existsByPathLowerIgnoreCaseAndDeletedAtIsNull(op.pathLower())) {
@@ -197,7 +193,8 @@ public class SourceService {
         if (op.sourceId() == null) throw new IllegalArgumentException("MISSING_SOURCE_ID");
         if (op.name() == null || op.name().isBlank()) throw new IllegalArgumentException("MISSING_NAME");
         if (op.path() == null || op.path().isBlank()) throw new IllegalArgumentException("MISSING_PATH");
-        if (op.pathLower() == null || op.pathLower().isBlank()) throw new IllegalArgumentException("MISSING_PATH_LOWER");
+        if (op.pathLower() == null || op.pathLower().isBlank())
+            throw new IllegalArgumentException("MISSING_PATH_LOWER");
         if (op.fileFormat() == null) throw new IllegalArgumentException("UNSUPPORTED_FORMAT");
         Source source = sourceRepository.findByIdIncludeDeleted(op.sourceId())
                 .orElseThrow(() -> new SourceNotFoundException(op.sourceId()));
@@ -220,7 +217,8 @@ public class SourceService {
 
     private void processUpdate(ReconcileOperation op) {
         if (op.sourceId() == null) throw new IllegalArgumentException("MISSING_SOURCE_ID");
-        if (op.contentHash() == null || op.contentHash().isBlank()) throw new IllegalArgumentException("MISSING_CONTENT_HASH");
+        if (op.contentHash() == null || op.contentHash().isBlank())
+            throw new IllegalArgumentException("MISSING_CONTENT_HASH");
         Source source = sourceRepository.findByIdIncludeDeleted(op.sourceId())
                 .orElseThrow(() -> new SourceNotFoundException(op.sourceId()));
 
@@ -242,7 +240,8 @@ public class SourceService {
     private void processReactivate(ReconcileOperation op) {
         if (op.sourceId() == null) throw new IllegalArgumentException("MISSING_SOURCE_ID");
         if (op.path() == null || op.path().isBlank()) throw new IllegalArgumentException("MISSING_PATH");
-        if (op.contentHash() == null || op.contentHash().isBlank()) throw new IllegalArgumentException("MISSING_CONTENT_HASH");
+        if (op.contentHash() == null || op.contentHash().isBlank())
+            throw new IllegalArgumentException("MISSING_CONTENT_HASH");
         Source source = sourceRepository.findByIdIncludeDeleted(op.sourceId())
                 .orElseThrow(() -> new SourceNotFoundException(op.sourceId()));
 

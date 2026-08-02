@@ -1,16 +1,18 @@
 package com.biblocat.api.exception;
 
-import java.net.URI;
-
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.core.Ordered;
 import org.springframework.core.annotation.Order;
+import org.springframework.data.core.PropertyReferenceException;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ProblemDetail;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import org.springframework.web.servlet.mvc.method.annotation.ResponseEntityExceptionHandler;
+
+import java.net.URI;
 
 @RestControllerAdvice
 @Order(Ordered.HIGHEST_PRECEDENCE)
@@ -55,6 +57,49 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
         ProblemDetail detail = ProblemDetail.forStatusAndDetail(HttpStatus.CONFLICT, ex.getMessage());
         detail.setType(URI.create("https://api.biblocat.local/errors/duplicate-path"));
         detail.setTitle("Duplicate Path");
+        return detail;
+    }
+
+    @ExceptionHandler(InvalidSortFieldException.class)
+    ProblemDetail handle(InvalidSortFieldException ex) {
+        ProblemDetail detail = ProblemDetail.forStatusAndDetail(HttpStatus.BAD_REQUEST, ex.getMessage());
+        detail.setType(URI.create("https://api.biblocat.local/errors/invalid-sort-field"));
+        detail.setTitle("Invalid Sort Field");
+        return detail;
+    }
+
+    @ExceptionHandler(InvalidPaginationParameterException.class)
+    ProblemDetail handle(InvalidPaginationParameterException ex) {
+        ProblemDetail detail = ProblemDetail.forStatusAndDetail(HttpStatus.BAD_REQUEST, ex.getMessage());
+        detail.setType(URI.create("https://api.biblocat.local/errors/invalid-pagination-parameter"));
+        detail.setTitle("Invalid Pagination Parameter");
+        return detail;
+    }
+
+    @ExceptionHandler(PropertyReferenceException.class)
+    ProblemDetail handle(PropertyReferenceException ex) {
+        ProblemDetail detail = ProblemDetail.forStatusAndDetail(
+                HttpStatus.BAD_REQUEST, "Invalid sort field: " + ex.getPropertyName());
+        detail.setType(URI.create("https://api.biblocat.local/errors/invalid-sort-field"));
+        detail.setTitle("Invalid Sort Field");
+        return detail;
+    }
+
+    @ExceptionHandler(MethodArgumentTypeMismatchException.class)
+    ProblemDetail handle(MethodArgumentTypeMismatchException ex) {
+        ProblemDetail detail = ProblemDetail.forStatusAndDetail(
+                HttpStatus.BAD_REQUEST, "Invalid parameter: " + ex.getName());
+        detail.setType(URI.create("https://api.biblocat.local/errors/invalid-request-parameter"));
+        detail.setTitle("Invalid Request Parameter");
+        return detail;
+    }
+
+    @ExceptionHandler(IllegalArgumentException.class)
+    ProblemDetail handle(IllegalArgumentException ex) {
+        log.warn("Illegal argument rejected: {}", ex.getMessage());
+        ProblemDetail detail = ProblemDetail.forStatusAndDetail(HttpStatus.BAD_REQUEST, ex.getMessage());
+        detail.setType(URI.create("https://api.biblocat.local/errors/invalid-request-parameter"));
+        detail.setTitle("Invalid Request Parameter");
         return detail;
     }
 
