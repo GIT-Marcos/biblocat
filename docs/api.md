@@ -929,6 +929,16 @@ soft-delete, el índice único parcial y la transferencia de metadatos por hash 
 - Los estados que requieren metadatos (year/edition/url, tags, soft-delete, pathLower duplicado) se preparan
   directamente con `JdbcTemplate` (las queries nativas del dominio se ejercitan así igualmente).
 
+**Factory de datos de prueba:**
+
+- `TestDataFactory` centraliza los fixtures SQL que antes estaban duplicados en cada clase de test de
+  integración: `insertSource`, `insertSourceWithMetadata`, `insertAuthor`, `insertTag`, `linkTag`,
+  `softDelete` y las queries de verificación (`pathOf`, `contentHashOf`, `yearOf`, `editionOf`, `tagIdsOf`,
+  etc.). Se declara como bean en `TestContainerConfig` y se inyecta como `data` en
+  `AbstractPostgresIntegrationTest`, por lo que todas las clases hijas la usan vía `data.<metodo>(...)`.
+  Los tests no escriben `INSERT`/`UPDATE` de datos propios fuera de la factory, salvo fixtures que la
+  factory no soporta (p. ej. un source con `file_format = 'EPUB'` en `list_FiltroFormat`).
+
 **Prohibiciones:**
 
 - `@DirtiesContext` — invalida el context caching y ralentiza la suite.

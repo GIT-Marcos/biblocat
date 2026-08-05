@@ -60,7 +60,7 @@ public class SourceService {
             source = sourceRepository.findByIdIncludeDeleted(id)
                     .orElseThrow(() -> new SourceNotFoundException(id));
         } else {
-            source = sourceRepository.findById(id)
+            source = sourceRepository.findActiveById(id)
                     .orElseThrow(() -> new SourceNotFoundException(id));
         }
         return SourceMapper.toResponse(source);
@@ -182,7 +182,7 @@ public class SourceService {
             source.setYear(orphan.getYear());
             source.setEdition(orphan.getEdition());
             source.setUrl(orphan.getUrl());
-            source.setTags(orphan.getTags());
+            source.setTags(new HashSet<>(orphan.getTags()));
             sourceRepository.hardDeleteById(orphan.getId());
         }
 

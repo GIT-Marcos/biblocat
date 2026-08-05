@@ -21,6 +21,9 @@ public abstract class AbstractPostgresIntegrationTest {
     @Autowired
     protected JdbcTemplate jdbcTemplate;
 
+    @Autowired
+    protected TestDataFactory data;
+
     @BeforeEach
     void cleanDatabase() {
         jdbcTemplate.update("DELETE FROM source_tags");

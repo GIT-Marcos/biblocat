@@ -18,11 +18,11 @@ class SourceReconcileIntegrationTest extends AbstractPostgresIntegrationTest {
 
     @Test
     void batchConLosCincoTipos_ProcesaEnOrdenCanonico() throws Exception {
-        UUID rename = insertSource("old.pdf", "Autor/old.pdf", "autor/old.pdf", "hash1", "Autor");
-        UUID update = insertSource("update.pdf", "Autor/update.pdf", "autor/update.pdf", "hashA", "Autor");
-        UUID reactivate = insertSource("react.pdf", "Autor/react.pdf", "autor/react.pdf", "hashB", "Autor");
-        UUID delete = insertSource("del.pdf", "Autor/del.pdf", "autor/del.pdf", "hashC", "Autor");
-        jdbcTemplate.update("UPDATE sources SET deleted_at = now() WHERE id = ?", reactivate);
+        UUID rename = data.insertSource("old.pdf", "Autor/old.pdf", "autor/old.pdf", "hash1", "Autor");
+        UUID update = data.insertSource("update.pdf", "Autor/update.pdf", "autor/update.pdf", "hashA", "Autor");
+        UUID reactivate = data.insertSource("react.pdf", "Autor/react.pdf", "autor/react.pdf", "hashB", "Autor");
+        UUID delete = data.insertSource("del.pdf", "Autor/del.pdf", "autor/del.pdf", "hashC", "Autor");
+        data.softDelete(reactivate);
 
         List<Map<String, Object>> ops = new ArrayList<>();
         ops.add(op("DELETE", Map.of("sourceId", delete)));
@@ -57,28 +57,28 @@ class SourceReconcileIntegrationTest extends AbstractPostgresIntegrationTest {
         assertThat(response.reactivated()).isEqualTo(1);
         assertThat(response.errors()).isEmpty();
 
-        assertThat(pathOf(rename)).isEqualTo("Nuevo Autor/renamed.pdf");
-        assertThat(contentHashOf(update)).isEqualTo("hashA2");
-        assertThat(deletedAtOf(reactivate)).isNull();
-        assertThat(deletedAtOf(delete)).isNotNull();
-        assertThat(countSourcesByName("nuevo.pdf")).isEqualTo(1);
-        assertThat(countAuthorsByName("Nuevo Autor")).isEqualTo(1);
+        assertThat(data.pathOf(rename)).isEqualTo("Nuevo Autor/renamed.pdf");
+        assertThat(data.contentHashOf(update)).isEqualTo("hashA2");
+        assertThat(data.deletedAtOf(reactivate)).isNull();
+        assertThat(data.deletedAtOf(delete)).isNotNull();
+        assertThat(data.countSourcesByName("nuevo.pdf")).isEqualTo(1);
+        assertThat(data.countAuthorsByName("Nuevo Autor")).isEqualTo(1);
     }
 
     @Test
     void deleteDuplicado_EsIdempotente() throws Exception {
-        UUID id = insertSource("del.pdf", "Autor/del.pdf", "autor/del.pdf", "hashC", "Autor");
+        UUID id = data.insertSource("del.pdf", "Autor/del.pdf", "autor/del.pdf", "hashC", "Autor");
 
         postReconcile(List.of(op("DELETE", Map.of("sourceId", id))));
-        assertThat(deletedAtOf(id)).isNotNull();
+        assertThat(data.deletedAtOf(id)).isNotNull();
 
         String body = postReconcile(List.of(op("DELETE", Map.of("sourceId", id))));
         ReconcileResponse response = objectMapper.readValue(body, ReconcileResponse.class);
 
         assertThat(response.deleted()).isEqualTo(1);
         assertThat(response.errors()).isEmpty();
-        assertThat(deletedAtOf(id)).isNotNull();
-        assertThat(countSourcesByName("del.pdf")).isEqualTo(1);
+        assertThat(data.deletedAtOf(id)).isNotNull();
+        assertThat(data.countSourcesByName("del.pdf")).isEqualTo(1);
     }
 
     @Test
@@ -135,17 +135,17 @@ class SourceReconcileIntegrationTest extends AbstractPostgresIntegrationTest {
                 "MISSING_CONTENT_HASH",
                 "MISSING_SOURCE_ID");
 
-        assertThat(countSourcesByName("valida.pdf")).isEqualTo(1);
-        assertThat(countSourcesByName("a.pdf")).isZero();
-        assertThat(countSourcesByName("b.pdf")).isZero();
-        assertThat(countSourcesByName("c.pdf")).isZero();
-        assertThat(countSourcesByName("d.pdf")).isZero();
-        assertThat(countSourcesByName("e.pdf")).isZero();
+        assertThat(data.countSourcesByName("valida.pdf")).isEqualTo(1);
+        assertThat(data.countSourcesByName("a.pdf")).isZero();
+        assertThat(data.countSourcesByName("b.pdf")).isZero();
+        assertThat(data.countSourcesByName("c.pdf")).isZero();
+        assertThat(data.countSourcesByName("d.pdf")).isZero();
+        assertThat(data.countSourcesByName("e.pdf")).isZero();
     }
 
     @Test
     void batchMixto_AplicaSoloLasValidas() throws Exception {
-        UUID id = insertSource("keep.pdf", "Autor/keep.pdf", "autor/keep.pdf", "hashK", "Autor");
+        UUID id = data.insertSource("keep.pdf", "Autor/keep.pdf", "autor/keep.pdf", "hashK", "Autor");
 
         List<Map<String, Object>> ops = new ArrayList<>();
         ops.add(op("UPDATE", Map.of("sourceId", UUID.randomUUID(), "contentHash", "h")));
@@ -158,15 +158,15 @@ class SourceReconcileIntegrationTest extends AbstractPostgresIntegrationTest {
         assertThat(response.processed()).isEqualTo(1);
         assertThat(response.errors()).hasSize(1);
         assertThat(response.errors().getFirst().error()).isEqualTo("SOURCE_NOT_FOUND");
-        assertThat(contentHashOf(id)).isEqualTo("hashK2");
+        assertThat(data.contentHashOf(id)).isEqualTo("hashK2");
     }
 
     @Test
     void create_conUnOrphanMismoHash_TransfiereMetadatosYPurgaElOrphan() throws Exception {
-        UUID orphan = insertSourceWithMetadata("old.pdf", "Autor/old.pdf", "autor/old.pdf", "hashM",
+        UUID orphan = data.insertSourceWithMetadata("old.pdf", "Autor/old.pdf", "autor/old.pdf", "hashM",
                 1967, "1ª edición", "https://example.com/libro", true);
-        UUID tag = insertTag("favorito");
-        linkTag(orphan, tag);
+        UUID tag = data.insertTag("favorito");
+        data.linkTag(orphan, tag);
 
         String body = postReconcile(List.of(op("CREATE", Map.of(
                 "name", "nuevo.pdf",
@@ -179,18 +179,18 @@ class SourceReconcileIntegrationTest extends AbstractPostgresIntegrationTest {
         assertThat(response.created()).isEqualTo(1);
         assertThat(response.errors()).isEmpty();
 
-        UUID nuevo = idOf("nuevo.pdf");
-        assertThat(yearOf(nuevo)).isEqualTo(1967);
-        assertThat(editionOf(nuevo)).isEqualTo("1ª edición");
-        assertThat(urlOf(nuevo)).isEqualTo("https://example.com/libro");
-        assertThat(tagIdsOf(nuevo)).containsExactly(tag);
-        assertThat(countSourcesByContentHash("hashM")).isEqualTo(1);
+        UUID nuevo = data.idOf("nuevo.pdf");
+        assertThat(data.yearOf(nuevo)).isEqualTo(1967);
+        assertThat(data.editionOf(nuevo)).isEqualTo("1ª edición");
+        assertThat(data.urlOf(nuevo)).isEqualTo("https://example.com/libro");
+        assertThat(data.tagIdsOf(nuevo)).containsExactly(tag);
+        assertThat(data.countSourcesByContentHash("hashM")).isEqualTo(1);
     }
 
     @Test
     void create_conDosOrphansMismoHash_NoTransfierePorAmbiguedad() throws Exception {
-        insertSourceWithMetadata("o1.pdf", "A/o1.pdf", "a/o1.pdf", "hashD", 1901, null, null, true);
-        insertSourceWithMetadata("o2.pdf", "A/o2.pdf", "a/o2.pdf", "hashD", 1902, null, null, true);
+        data.insertSourceWithMetadata("o1.pdf", "A/o1.pdf", "a/o1.pdf", "hashD", 1901, null, null, true);
+        data.insertSourceWithMetadata("o2.pdf", "A/o2.pdf", "a/o2.pdf", "hashD", 1902, null, null, true);
 
         String body = postReconcile(List.of(op("CREATE", Map.of(
                 "name", "nuevo.pdf",
@@ -201,9 +201,9 @@ class SourceReconcileIntegrationTest extends AbstractPostgresIntegrationTest {
         ReconcileResponse response = objectMapper.readValue(body, ReconcileResponse.class);
 
         assertThat(response.created()).isEqualTo(1);
-        UUID nuevo = idOf("nuevo.pdf");
-        assertThat(yearOf(nuevo)).isNull();
-        assertThat(countSourcesByContentHash("hashD")).isEqualTo(3);
+        UUID nuevo = data.idOf("nuevo.pdf");
+        assertThat(data.yearOf(nuevo)).isNull();
+        assertThat(data.countSourcesByContentHash("hashD")).isEqualTo(3);
     }
 
     @Test
@@ -217,12 +217,12 @@ class SourceReconcileIntegrationTest extends AbstractPostgresIntegrationTest {
         ReconcileResponse response = objectMapper.readValue(body, ReconcileResponse.class);
 
         assertThat(response.created()).isEqualTo(1);
-        assertThat(yearOf(idOf("nuevo.pdf"))).isNull();
+        assertThat(data.yearOf(data.idOf("nuevo.pdf"))).isNull();
     }
 
     @Test
     void create_conAuthorExistenteCasingDistinto_ReutilizaElAutor() throws Exception {
-        UUID author = insertAuthor("Gabriel García Márquez");
+        UUID author = data.insertAuthor("Gabriel García Márquez");
 
         String body = postReconcile(List.of(op("CREATE", Map.of(
                 "name", "libro.pdf",
@@ -234,9 +234,9 @@ class SourceReconcileIntegrationTest extends AbstractPostgresIntegrationTest {
         ReconcileResponse response = objectMapper.readValue(body, ReconcileResponse.class);
 
         assertThat(response.created()).isEqualTo(1);
-        assertThat(countAuthorsByName("Gabriel García Márquez")).isEqualTo(1);
+        assertThat(data.countAuthorsByName("Gabriel García Márquez")).isEqualTo(1);
         UUID authorOf = jdbcTemplate.queryForObject(
-                "SELECT author_id FROM sources WHERE id = ?", UUID.class, idOf("libro.pdf"));
+                "SELECT author_id FROM sources WHERE id = ?", UUID.class, data.idOf("libro.pdf"));
         assertThat(authorOf).isEqualTo(author);
     }
 
@@ -252,12 +252,12 @@ class SourceReconcileIntegrationTest extends AbstractPostgresIntegrationTest {
         ReconcileResponse response = objectMapper.readValue(body, ReconcileResponse.class);
 
         assertThat(response.created()).isEqualTo(1);
-        assertThat(countAuthorsByName("Borges")).isEqualTo(1);
+        assertThat(data.countAuthorsByName("Borges")).isEqualTo(1);
     }
 
     @Test
     void create_conPathLowerDuplicadoActivo_DuplicatePath() throws Exception {
-        insertSource("existente.pdf", "Autor/existente.pdf", "autor/existente.pdf", "hashE", "Autor");
+        data.insertSource("existente.pdf", "Autor/existente.pdf", "autor/existente.pdf", "hashE", "Autor");
 
         String body = postReconcile(List.of(op("CREATE", Map.of(
                 "name", "duplicado.pdf",
@@ -270,12 +270,12 @@ class SourceReconcileIntegrationTest extends AbstractPostgresIntegrationTest {
         assertThat(response.created()).isZero();
         assertThat(response.errors()).hasSize(1);
         assertThat(response.errors().getFirst().error()).isEqualTo("DUPLICATE_PATH");
-        assertThat(countSourcesByName("duplicado.pdf")).isZero();
+        assertThat(data.countSourcesByName("duplicado.pdf")).isZero();
     }
 
     @Test
     void renameSobreSoftDeleted_ReactivaYActualizaPath() throws Exception {
-        UUID id = insertSourceWithMetadata("old.pdf", "Autor/old.pdf", "autor/old.pdf", "hashR",
+        UUID id = data.insertSourceWithMetadata("old.pdf", "Autor/old.pdf", "autor/old.pdf", "hashR",
                 2001, null, null, true);
 
         String body = postReconcile(List.of(op("RENAME", Map.of(
@@ -288,14 +288,14 @@ class SourceReconcileIntegrationTest extends AbstractPostgresIntegrationTest {
 
         assertThat(response.renamed()).isEqualTo(1);
         assertThat(response.errors()).isEmpty();
-        assertThat(deletedAtOf(id)).isNull();
-        assertThat(pathOf(id)).isEqualTo("Nuevo/renamed.pdf");
-        assertThat(yearOf(id)).isEqualTo(2001);
+        assertThat(data.deletedAtOf(id)).isNull();
+        assertThat(data.pathOf(id)).isEqualTo("Nuevo/renamed.pdf");
+        assertThat(data.yearOf(id)).isEqualTo(2001);
     }
 
     @Test
     void reactivate_NoModificaPathLowerYPreservaMetadatos() throws Exception {
-        UUID id = insertSourceWithMetadata("react.pdf", "Autor/react.pdf", "autor/react.pdf", "hashH",
+        UUID id = data.insertSourceWithMetadata("react.pdf", "Autor/react.pdf", "autor/react.pdf", "hashH",
                 1999, "2ª edición", null, true);
 
         String body = postReconcile(List.of(op("REACTIVATE", Map.of(
@@ -306,12 +306,12 @@ class SourceReconcileIntegrationTest extends AbstractPostgresIntegrationTest {
 
         assertThat(response.reactivated()).isEqualTo(1);
         assertThat(response.errors()).isEmpty();
-        assertThat(deletedAtOf(id)).isNull();
-        assertThat(pathLowerOf(id)).isEqualTo("autor/react.pdf");
-        assertThat(pathOf(id)).isEqualTo("Otro/react.pdf");
-        assertThat(contentHashOf(id)).isEqualTo("hashH2");
-        assertThat(yearOf(id)).isEqualTo(1999);
-        assertThat(editionOf(id)).isEqualTo("2ª edición");
+        assertThat(data.deletedAtOf(id)).isNull();
+        assertThat(data.pathLowerOf(id)).isEqualTo("autor/react.pdf");
+        assertThat(data.pathOf(id)).isEqualTo("Otro/react.pdf");
+        assertThat(data.contentHashOf(id)).isEqualTo("hashH2");
+        assertThat(data.yearOf(id)).isEqualTo(1999);
+        assertThat(data.editionOf(id)).isEqualTo("2ª edición");
     }
 
     private String postReconcile(List<Map<String, Object>> operations) throws Exception {
@@ -330,90 +330,4 @@ class SourceReconcileIntegrationTest extends AbstractPostgresIntegrationTest {
         return map;
     }
 
-    private UUID insertAuthor(String name) {
-        UUID id = UUID.randomUUID();
-        jdbcTemplate.update("INSERT INTO authors (id, name) VALUES (?, ?)", id, name);
-        return id;
     }
-
-    private UUID insertSource(String name, String path, String pathLower, String contentHash, String authorName) {
-        UUID id = UUID.randomUUID();
-        UUID authorId = authorName == null ? null : insertAuthor(authorName);
-        jdbcTemplate.update("""
-                INSERT INTO sources (id, name, path, path_lower, content_hash, file_format, author_id)
-                VALUES (?, ?, ?, ?, ?, 'PDF', ?)
-                """, id, name, path, pathLower, contentHash, authorId);
-        return id;
-    }
-
-    private String pathOf(UUID id) {
-        return jdbcTemplate.queryForObject("SELECT path FROM sources WHERE id = ?", String.class, id);
-    }
-
-    private String contentHashOf(UUID id) {
-        return jdbcTemplate.queryForObject("SELECT content_hash FROM sources WHERE id = ?", String.class, id);
-    }
-
-    private java.time.Instant deletedAtOf(UUID id) {
-        return jdbcTemplate.queryForObject("SELECT deleted_at FROM sources WHERE id = ?", java.time.Instant.class, id);
-    }
-
-    private int countSourcesByName(String name) {
-        return jdbcTemplate.queryForObject("SELECT COUNT(*) FROM sources WHERE name = ?", Integer.class, name);
-    }
-
-    private int countAuthorsByName(String name) {
-        return jdbcTemplate.queryForObject("SELECT COUNT(*) FROM authors WHERE name = ?", Integer.class, name);
-    }
-
-    private UUID insertSourceWithMetadata(String name, String path, String pathLower, String contentHash,
-                                          Integer year, String edition, String url, boolean deleted) {
-        UUID id = UUID.randomUUID();
-        jdbcTemplate.update("""
-                        INSERT INTO sources (id, name, path, path_lower, content_hash, file_format,
-                                             year, edition, url, deleted_at)
-                        VALUES (?, ?, ?, ?, ?, 'PDF', ?, ?, ?, ?)
-                        """, id, name, path, pathLower, contentHash, year, edition, url,
-                deleted ? java.time.Instant.now() : null);
-        return id;
-    }
-
-    private UUID insertTag(String name) {
-        UUID id = UUID.randomUUID();
-        jdbcTemplate.update("INSERT INTO tags (id, name) VALUES (?, ?)", id, name);
-        return id;
-    }
-
-    private void linkTag(UUID sourceId, UUID tagId) {
-        jdbcTemplate.update("INSERT INTO source_tags (source_id, tag_id) VALUES (?, ?)", sourceId, tagId);
-    }
-
-    private UUID idOf(String name) {
-        return jdbcTemplate.queryForObject("SELECT id FROM sources WHERE name = ?", UUID.class, name);
-    }
-
-    private Integer yearOf(UUID id) {
-        return jdbcTemplate.queryForObject("SELECT year FROM sources WHERE id = ?", Integer.class, id);
-    }
-
-    private String editionOf(UUID id) {
-        return jdbcTemplate.queryForObject("SELECT edition FROM sources WHERE id = ?", String.class, id);
-    }
-
-    private String urlOf(UUID id) {
-        return jdbcTemplate.queryForObject("SELECT url FROM sources WHERE id = ?", String.class, id);
-    }
-
-    private String pathLowerOf(UUID id) {
-        return jdbcTemplate.queryForObject("SELECT path_lower FROM sources WHERE id = ?", String.class, id);
-    }
-
-    private int countSourcesByContentHash(String hash) {
-        return jdbcTemplate.queryForObject("SELECT COUNT(*) FROM sources WHERE content_hash = ?", Integer.class, hash);
-    }
-
-    private List<UUID> tagIdsOf(UUID sourceId) {
-        return jdbcTemplate.query("SELECT tag_id FROM source_tags WHERE source_id = ?",
-                (rs, rowNum) -> rs.getObject("tag_id", UUID.class), sourceId);
-    }
-}

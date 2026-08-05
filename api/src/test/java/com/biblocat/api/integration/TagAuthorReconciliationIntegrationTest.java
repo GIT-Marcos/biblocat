@@ -34,12 +34,12 @@ class TagAuthorReconciliationIntegrationTest extends AbstractPostgresIntegration
 
         assertThat(json.get("name").asString()).isEqualTo("favorito");
         assertThat(json.get("id").asString()).isNotBlank();
-        assertThat(countTagsByName("favorito")).isEqualTo(1);
+        assertThat(data.countTagsByName("favorito")).isEqualTo(1);
     }
 
     @Test
     void tags_Create_DuplicadoIgnoreCase_409() throws Exception {
-        insertTag("favorito");
+        data.insertTag("favorito");
 
         String request = """
                 {"name": "FAVORITO"}
@@ -49,13 +49,13 @@ class TagAuthorReconciliationIntegrationTest extends AbstractPostgresIntegration
         JsonNode json = objectMapper.readTree(body);
 
         assertThat(json.get("status").asInt()).isEqualTo(409);
-        assertThat(countTagsByName("favorito")).isEqualTo(1);
+        assertThat(data.countTagsByName("favorito")).isEqualTo(1);
     }
 
     @Test
     void tags_List_FiltroQ_SubstringIgnoreCase() throws Exception {
-        insertTag("favorito");
-        insertTag("pendiente");
+        data.insertTag("favorito");
+        data.insertTag("pendiente");
 
         String body = mvc.get().uri("/api/tags").queryParam("q", "PEN").exchange()
                 .getResponse().getContentAsString();
@@ -67,7 +67,7 @@ class TagAuthorReconciliationIntegrationTest extends AbstractPostgresIntegration
 
     @Test
     void tags_Patch_RenombraNormalizando_200() throws Exception {
-        UUID id = insertTag("favorito");
+        UUID id = data.insertTag("favorito");
 
         String request = """
                 {"name": " Leido "}
@@ -76,13 +76,13 @@ class TagAuthorReconciliationIntegrationTest extends AbstractPostgresIntegration
                 .content(request).exchange().getResponse().getContentAsString());
 
         assertThat(json.get("name").asString()).isEqualTo("leido");
-        assertThat(countTagsByName("leido")).isEqualTo(1);
-        assertThat(countTagsByName("favorito")).isZero();
+        assertThat(data.countTagsByName("leido")).isEqualTo(1);
+        assertThat(data.countTagsByName("favorito")).isZero();
     }
 
     @Test
     void tags_Patch_MismoNombreConCasingDiferente_NoLanza409() throws Exception {
-        UUID id = insertTag("favorito");
+        UUID id = data.insertTag("favorito");
 
         String request = """
                 {"name": "FAVORITO"}
@@ -95,8 +95,8 @@ class TagAuthorReconciliationIntegrationTest extends AbstractPostgresIntegration
 
     @Test
     void tags_Patch_NombreDeOtroTagExistente_409() throws Exception {
-        insertTag("favorito");
-        UUID otro = insertTag("pendiente");
+        data.insertTag("favorito");
+        UUID otro = data.insertTag("pendiente");
 
         String request = """
                 {"name": "FAVORITO"}
@@ -118,13 +118,13 @@ class TagAuthorReconciliationIntegrationTest extends AbstractPostgresIntegration
 
     @Test
     void tags_Delete_204ConCascadeASourceTags() throws Exception {
-        UUID source = insertSource("a.pdf", "Autor/a.pdf", "autor/a.pdf", "h1");
-        UUID tag = insertTag("favorito");
-        jdbcTemplate.update("INSERT INTO source_tags (source_id, tag_id) VALUES (?, ?)", source, tag);
+        UUID source = data.insertSource("a.pdf", "Autor/a.pdf", "autor/a.pdf", "h1", null);
+        UUID tag = data.insertTag("favorito");
+        data.linkTag(source, tag);
 
         assertThat(mvc.delete().uri("/api/tags/" + tag).exchange()).hasStatus(HttpStatus.NO_CONTENT);
 
-        assertThat(countTagsByName("favorito")).isZero();
+        assertThat(data.countTagsByName("favorito")).isZero();
         assertThat(jdbcTemplate.queryForObject("SELECT COUNT(*) FROM source_tags WHERE tag_id = ?",
                 Integer.class, tag)).isZero();
     }
@@ -137,8 +137,8 @@ class TagAuthorReconciliationIntegrationTest extends AbstractPostgresIntegration
 
     @Test
     void authors_List_DevuelveTodosConIdYNombre() throws Exception {
-        insertAuthor("Gabriel García Márquez");
-        insertAuthor("Jorge Luis Borges");
+        data.insertAuthor("Gabriel García Márquez");
+        data.insertAuthor("Jorge Luis Borges");
 
         String body = mvc.get().uri("/api/authors").exchange().getResponse().getContentAsString();
         JsonNode json = objectMapper.readTree(body);
@@ -150,8 +150,8 @@ class TagAuthorReconciliationIntegrationTest extends AbstractPostgresIntegration
 
     @Test
     void authors_List_FiltroQ_SubstringIgnoreCase() throws Exception {
-        insertAuthor("Gabriel García Márquez");
-        insertAuthor("Jorge Luis Borges");
+        data.insertAuthor("Gabriel García Márquez");
+        data.insertAuthor("Jorge Luis Borges");
 
         String body = mvc.get().uri("/api/authors").queryParam("q", "borges").exchange()
                 .getResponse().getContentAsString();
@@ -201,30 +201,5 @@ class TagAuthorReconciliationIntegrationTest extends AbstractPostgresIntegration
 
     private JsonNode exchangeJson(String body) throws Exception {
         return objectMapper.readTree(body);
-    }
-
-    private int countTagsByName(String name) {
-        return jdbcTemplate.queryForObject("SELECT COUNT(*) FROM tags WHERE name = ?", Integer.class, name);
-    }
-
-    private UUID insertTag(String name) {
-        UUID id = UUID.randomUUID();
-        jdbcTemplate.update("INSERT INTO tags (id, name) VALUES (?, ?)", id, name);
-        return id;
-    }
-
-    private UUID insertAuthor(String name) {
-        UUID id = UUID.randomUUID();
-        jdbcTemplate.update("INSERT INTO authors (id, name) VALUES (?, ?)", id, name);
-        return id;
-    }
-
-    private UUID insertSource(String name, String path, String pathLower, String contentHash) {
-        UUID id = UUID.randomUUID();
-        jdbcTemplate.update("""
-                INSERT INTO sources (id, name, path, path_lower, content_hash, file_format)
-                VALUES (?, ?, ?, ?, ?, 'PDF')
-                """, id, name, path, pathLower, contentHash);
-        return id;
     }
 }

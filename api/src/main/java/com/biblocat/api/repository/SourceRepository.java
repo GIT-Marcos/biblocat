@@ -18,15 +18,18 @@ public interface SourceRepository extends JpaRepository<Source, UUID>, JpaSpecif
     boolean existsByPathLowerIgnoreCaseAndDeletedAtIsNull(String pathLower);
 
     @Query(value = """
-            SELECT DISTINCT ON (s.path_lower)
-                s.id                    AS id,
-                s.path                  AS path,
-                s.path_lower            AS pathLower,
-                s.content_hash          AS contentHash,
-                s.deleted_at            AS deletedAt
-            FROM sources s
-            ORDER BY s.path_lower,
-                CASE WHEN s.deleted_at IS NULL THEN 0 ELSE 1 END
+            SELECT * FROM (
+                SELECT DISTINCT ON (s.path_lower)
+                    s.id                    AS id,
+                    s.path                  AS path,
+                    s.path_lower            AS pathLower,
+                    s.content_hash          AS contentHash,
+                    s.deleted_at            AS deletedAt
+                FROM sources s
+                ORDER BY s.path_lower,
+                    CASE WHEN s.deleted_at IS NULL THEN 0 ELSE 1 END
+            ) paths
+            ORDER BY CASE WHEN paths.deletedAt IS NULL THEN 0 ELSE 1 END, paths.pathLower
             """, nativeQuery = true)
     List<PathsProjection> findPathsForReconciliation();
 
@@ -42,6 +45,13 @@ public interface SourceRepository extends JpaRepository<Source, UUID>, JpaSpecif
             WHERE s.id = :id
             """, nativeQuery = true)
     Optional<Source> findByIdIncludeDeleted(@Param("id") UUID id);
+
+    @Query(value = """
+            SELECT s.* FROM sources s
+            WHERE s.id = :id
+              AND s.deleted_at IS NULL
+            """, nativeQuery = true)
+    Optional<Source> findActiveById(@Param("id") UUID id);
 
     @Modifying
     @Query(value = "DELETE FROM sources WHERE id = :id", nativeQuery = true)
