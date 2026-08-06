@@ -1,6 +1,7 @@
 package com.biblocat.api.validation;
 
 import com.biblocat.api.dto.request.ReconcileOperation;
+import com.biblocat.api.exception.ReconcileValidationException;
 import org.springframework.stereotype.Component;
 
 @Component
@@ -8,7 +9,7 @@ public class ReconcileOperationValidator {
 
     public void validate(ReconcileOperation op) {
         if (op == null || op.type() == null) {
-            throw new IllegalArgumentException("MISSING_TYPE");
+            throw new ReconcileValidationException("MISSING_TYPE");
         }
         switch (op.type()) {
             case CREATE -> validateCreate(op);
@@ -53,13 +54,13 @@ public class ReconcileOperationValidator {
 
     private static void requireNotNull(String errorCode, Object value) {
         if (value == null) {
-            throw new IllegalArgumentException(errorCode);
+            throw new ReconcileValidationException(errorCode);
         }
     }
 
     private static void requireNotBlank(String errorCode, String value) {
         if (value == null || value.isBlank()) {
-            throw new IllegalArgumentException(errorCode);
+            throw new ReconcileValidationException(errorCode);
         }
     }
 }

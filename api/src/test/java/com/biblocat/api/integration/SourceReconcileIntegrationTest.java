@@ -336,16 +336,15 @@ class SourceReconcileIntegrationTest extends AbstractPostgresIntegrationTest {
     }
 
     @Test
-    void reactivate_conPathLowerOcupadoActivo_DuplicatePath() throws Exception {
+    void reactivate_conPathLowerNuevoQueColisiona_DuplicatePath() throws Exception {
         UUID owner = data.insertSource("a.pdf", "Autor/a.pdf", "autor/a.pdf", "h1", "Autor");
         UUID orphan = data.insertSourceWithMetadata("b.pdf", "Autor/b.pdf", "autor/b.pdf", "h2",
                 null, null, null, true);
-        jdbcTemplate.update("UPDATE sources SET path_lower = 'autor/a.pdf' WHERE id = ?", orphan);
 
         String body = postReconcile(List.of(op("REACTIVATE", Map.of(
                 "sourceId", orphan,
-                "path", "Autor/x.pdf",
-                "pathLower", "autor/x.pdf",
+                "path", "Autor/a.pdf",
+                "pathLower", "autor/a.pdf",
                 "contentHash", "h3"))));
         ReconcileResponse response = objectMapper.readValue(body, ReconcileResponse.class);
 

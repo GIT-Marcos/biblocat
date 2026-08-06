@@ -104,6 +104,11 @@ public class SourceController {
         }
     }
 
+    @GetMapping("/paths")
+    public ResponseEntity<List<PathsEntryResponse>> paths() {
+        return ResponseEntity.ok(sourceService.findPathsForReconciliation());
+    }
+
     @GetMapping("/{id}")
     public ResponseEntity<SourceResponse> getById(
             @PathVariable UUID id,
@@ -122,11 +127,6 @@ public class SourceController {
     public ResponseEntity<Void> purge(@PathVariable UUID id) {
         sourceService.purge(id);
         return ResponseEntity.noContent().build();
-    }
-
-    @GetMapping("/paths")
-    public ResponseEntity<List<PathsEntryResponse>> paths() {
-        return ResponseEntity.ok(sourceService.findPathsForReconciliation());
     }
 
     @PostMapping("/reconcile")

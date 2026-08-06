@@ -15,7 +15,7 @@ public record SourcePatchRequest(
         @Size(max = 50)
         String edition,
 
-        @Pattern(regexp = "https?://.+")
+        @Pattern(regexp = "https?://\\S+")
         @Size(max = 2048)
         String url
 ) {

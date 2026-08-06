@@ -36,17 +36,6 @@ import java.util.stream.Collectors;
 @Transactional
 public class SourceService {
 
-    private static final Set<String> KNOWN_OPERATION_ERRORS = Set.of(
-            "MISSING_NAME",
-            "MISSING_PATH",
-            "MISSING_PATH_LOWER",
-            "MISSING_CONTENT_HASH",
-            "MISSING_SOURCE_ID",
-            "MISSING_FORMAT",
-            "UNSUPPORTED_FORMAT",
-            "DUPLICATE_AUTHOR"
-    );
-
     private static final Logger log = LoggerFactory.getLogger(SourceService.class);
 
     private final SourceRepository sourceRepository;
@@ -124,14 +113,20 @@ public class SourceService {
         Source source = sourceRepository.findById(sourceId)
                 .orElseThrow(() -> new SourceNotFoundException(sourceId));
 
-        Set<Tag> tags = new HashSet<>();
-        for (UUID tagId : request.tagIds()) {
-            Tag tag = tagRepository.findById(tagId)
-                    .orElseThrow(() -> new TagNotFoundException(tagId));
-            tags.add(tag);
+        List<Tag> foundTags = tagRepository.findAllById(request.tagIds());
+
+        if (foundTags.size() != request.tagIds().size()) {
+            Set<UUID> foundIds = foundTags.stream()
+                    .map(Tag::getId)
+                    .collect(Collectors.toSet());
+            UUID missingId = request.tagIds().stream()
+                    .filter(id -> !foundIds.contains(id))
+                    .findFirst()
+                    .orElseThrow();
+            throw new TagNotFoundException(missingId);
         }
 
-        source.setTags(tags);
+        source.setTags(new HashSet<>(foundTags));
         return SourceMapper.toResponse(sourceRepository.save(source));
     }
 
@@ -207,6 +202,9 @@ public class SourceService {
             source.setUrl(orphan.getUrl());
             source.setTags(new HashSet<>(orphan.getTags()));
             sourceRepository.hardDeleteById(orphan.getId());
+        } else if (orphans.size() > 1) {
+            log.warn("Ambiguous orphan adoption: {} orphans with hash={}, skipping transfer",
+                    orphans.size(), op.contentHash());
         }
 
         sourceRepository.save(source);
@@ -258,8 +256,8 @@ public class SourceService {
         Source source = sourceRepository.findByIdIncludeDeleted(op.sourceId())
                 .orElseThrow(() -> new SourceNotFoundException(op.sourceId()));
 
-        if (sourceRepository.existsByPathLowerIgnoreCaseAndDeletedAtIsNullAndIdNot(source.getPathLower(), op.sourceId())) {
-            throw new DuplicatePathException(source.getPathLower());
+        if (sourceRepository.existsByPathLowerIgnoreCaseAndDeletedAtIsNullAndIdNot(op.pathLower(), op.sourceId())) {
+            throw new DuplicatePathException(op.pathLower());
         }
 
         source.setDeletedAt(null);
@@ -271,12 +269,12 @@ public class SourceService {
 
     private static FileFormat parseFormat(String raw) {
         if (raw == null || raw.isBlank()) {
-            throw new IllegalArgumentException("MISSING_FORMAT");
+            throw new ReconcileValidationException("MISSING_FORMAT");
         }
         try {
             return FileFormat.valueOf(raw.trim().toUpperCase());
         } catch (IllegalArgumentException e) {
-            throw new IllegalArgumentException("UNSUPPORTED_FORMAT");
+            throw new ReconcileValidationException("UNSUPPORTED_FORMAT");
         }
     }
 
@@ -284,9 +282,7 @@ public class SourceService {
         if (e instanceof DuplicateAuthorException) return "DUPLICATE_AUTHOR";
         if (e instanceof DuplicatePathException) return "DUPLICATE_PATH";
         if (e instanceof SourceNotFoundException) return "SOURCE_NOT_FOUND";
-        if (e instanceof IllegalArgumentException iae && KNOWN_OPERATION_ERRORS.contains(iae.getMessage())) {
-            return iae.getMessage();
-        }
+        if (e instanceof ReconcileValidationException rve) return rve.getErrorCode();
         if (e instanceof DataIntegrityViolationException dive
                 && dive.getMostSpecificCause().getMessage() != null
                 && dive.getMostSpecificCause().getMessage().contains("uq_sources_active_path_lower")) {

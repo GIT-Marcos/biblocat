@@ -61,6 +61,14 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
         return detail;
     }
 
+    @ExceptionHandler(DuplicateAuthorException.class)
+    ProblemDetail handle(DuplicateAuthorException ex) {
+        ProblemDetail detail = ProblemDetail.forStatusAndDetail(HttpStatus.CONFLICT, ex.getMessage());
+        detail.setType(URI.create("https://api.biblocat.local/errors/duplicate-author"));
+        detail.setTitle("Duplicate Author");
+        return detail;
+    }
+
     @ExceptionHandler(InvalidSortFieldException.class)
     ProblemDetail handle(InvalidSortFieldException ex) {
         ProblemDetail detail = ProblemDetail.forStatusAndDetail(HttpStatus.BAD_REQUEST, ex.getMessage());

@@ -306,6 +306,7 @@ configurable.
 | `MISSING_PATH_LOWER`   | Operación CREATE/RENAME sin `pathLower`                                              | Log ERROR, no reintentar, revisar configuración del Agent |
 | `MISSING_CONTENT_HASH` | Operación CREATE/UPDATE/REACTIVATE sin `contentHash`                                 | Log ERROR, no reintentar, revisar configuración del Agent |
 | `MISSING_SOURCE_ID`    | Operación RENAME/UPDATE/DELETE/REACTIVATE sin `sourceId`                             | Log ERROR, no reintentar, revisar configuración del Agent |
+| `MISSING_FORMAT`       | Operación CREATE/RENAME sin `fileFormat`                                             | Log ERROR, no reintentar, revisar configuración del Agent |
 | `SOURCE_NOT_FOUND`     | El `sourceId` no existe (fue purgado entre GET y POST)                               | Log WARN, no reintentar, continuar con el resto del batch |
 | `UNSUPPORTED_FORMAT`   | Formato de archivo no soportado                                                      | Log WARN, no reintentar                                   |
 | `DUPLICATE_PATH`       | `pathLower` ya existe como fuente activa (comprobado en CREATE, RENAME y REACTIVATE) | Log WARN, reintentar 1 vez                                |
@@ -328,13 +329,14 @@ nombre de la constraint; si una migración futura lo renombra, actualizar el map
 - **DELETE**: aplica soft-delete (setea `deleted_at = now()`) al source identificado por `sourceId`. Idempotente: si ya
   estaba soft-deleteado, es no-op.
   Si `sourceId` no existe, responde `SOURCE_NOT_FOUND` en `errors`.
-- **REACTIVATE**: limpia `deleted_at` del source identificado por `sourceId`. Actualiza path y contentHash. Preserva
-  metadatos existentes. Si el `pathLower` del source a reactivar ya pertenece a otro source activo, responde
+- **REACTIVATE**: limpia `deleted_at` del source identificado por `sourceId`. Actualiza path, pathLower y contentHash.
+  Preserva metadatos existentes. Si el `pathLower` del source a reactivar ya pertenece a otro source activo, responde
   `DUPLICATE_PATH` y no lo reactiva.
   Si `sourceId` no existe, responde `SOURCE_NOT_FOUND` en `errors`.
-  **Nota:** REACTIVATE no modifica `pathLower`. El caso B de clasificación (`agent.md §2.5`) requiere que el path
-  exista en la API, por lo que el path no cambia respecto al estado conocido. Si el path hubiera cambiado, el Agent
-  clasificaría como RENAME (caso D), no como REACTIVATE.
+  **Nota:** REACTIVATE sí modifica `pathLower` y `path` si el Agent los envía. El caso B de clasificación 
+  (`agent.md §2.5`) requiere que el path exista en la API; si el path hubiera cambiado, el Agent clasificaría como 
+  RENAME (caso D), no como REACTIVATE. Sin embargo, el Agent puede enviar un pathLower diferente si detecta una 
+  colisión previa o si normaliza el path de forma distinta.
 
 ---
 
