@@ -9,10 +9,7 @@ import com.biblocat.api.entity.Author;
 import com.biblocat.api.entity.FileFormat;
 import com.biblocat.api.entity.Source;
 import com.biblocat.api.entity.Tag;
-import com.biblocat.api.exception.ActiveSourceException;
-import com.biblocat.api.exception.DuplicatePathException;
-import com.biblocat.api.exception.SourceNotFoundException;
-import com.biblocat.api.exception.TagNotFoundException;
+import com.biblocat.api.exception.*;
 import com.biblocat.api.mapper.SourceMapper;
 import com.biblocat.api.repository.SourcePaginationRepository;
 import com.biblocat.api.repository.SourceRepository;
@@ -283,6 +280,7 @@ public class SourceService {
     }
 
     private static String mapErrorCode(Exception e) {
+        if (e instanceof DuplicateAuthorException) return "DUPLICATE_PATH";
         if (e instanceof DuplicatePathException) return "DUPLICATE_PATH";
         if (e instanceof SourceNotFoundException) return "SOURCE_NOT_FOUND";
         if (e instanceof IllegalArgumentException iae && KNOWN_OPERATION_ERRORS.contains(iae.getMessage())) {

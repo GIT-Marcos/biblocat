@@ -2,13 +2,14 @@ package com.biblocat.api.service;
 
 import com.biblocat.api.dto.response.AuthorResponse;
 import com.biblocat.api.entity.Author;
+import com.biblocat.api.exception.DuplicateAuthorException;
 import com.biblocat.api.mapper.AuthorMapper;
 import com.biblocat.api.repository.AuthorRepository;
-
-import java.util.List;
-
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+
+import java.util.List;
 
 @Service
 @Transactional
@@ -32,13 +33,17 @@ public class AuthorService {
                 .toList();
     }
 
-    @Transactional(readOnly = true)
+    @Transactional
     public Author findOrCreate(String name) {
         if (name == null || name.isBlank()) {
             return null;
         }
         String trimmed = name.strip();
-        return authorRepository.findByNameIgnoreCase(trimmed)
-                .orElseGet(() -> authorRepository.save(new Author(trimmed)));
+        try {
+            return authorRepository.findByNameIgnoreCase(trimmed)
+                    .orElseGet(() -> authorRepository.saveAndFlush(new Author(trimmed)));
+        } catch (DataIntegrityViolationException e) {
+            throw new DuplicateAuthorException(trimmed);
+        }
     }
 }

@@ -8,12 +8,12 @@ import com.biblocat.api.exception.TagAlreadyExistsException;
 import com.biblocat.api.exception.TagNotFoundException;
 import com.biblocat.api.mapper.TagMapper;
 import com.biblocat.api.repository.TagRepository;
+import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 import java.util.UUID;
-
-import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 
 @Service
 @Transactional
@@ -42,8 +42,12 @@ public class TagService {
         if (tagRepository.existsByNameIgnoreCase(normalized)) {
             throw new TagAlreadyExistsException(normalized);
         }
-        Tag tag = tagRepository.save(new Tag(normalized));
-        return TagMapper.toResponse(tag);
+        try {
+            Tag tag = tagRepository.saveAndFlush(new Tag(normalized));
+            return TagMapper.toResponse(tag);
+        } catch (DataIntegrityViolationException e) {
+            throw new TagAlreadyExistsException(normalized);
+        }
     }
 
     public TagResponse update(UUID id, TagPatchRequest request) {
@@ -56,7 +60,11 @@ public class TagService {
         }
 
         tag.setName(normalized);
-        return TagMapper.toResponse(tagRepository.save(tag));
+        try {
+            return TagMapper.toResponse(tagRepository.saveAndFlush(tag));
+        } catch (DataIntegrityViolationException e) {
+            throw new TagAlreadyExistsException(normalized);
+        }
     }
 
     public void delete(UUID id) {

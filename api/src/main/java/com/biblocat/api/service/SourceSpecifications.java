@@ -19,6 +19,12 @@ public final class SourceSpecifications {
     private SourceSpecifications() {
     }
 
+    private static String escapeLike(String value) {
+        return value.replace("\\", "\\\\")
+                .replace("%", "\\%")
+                .replace("_", "\\_");
+    }
+
     public static Specification<Source> withFilter(String q, UUID authorId, UUID tagId, FileFormat format, boolean includeDeleted) {
         return (root, query, cb) -> {
             List<Predicate> predicates = new ArrayList<>();
@@ -28,12 +34,12 @@ public final class SourceSpecifications {
             }
 
             if (q != null && !q.isBlank()) {
-                String pattern = "%" + q.toLowerCase() + "%";
-                Predicate namePred = cb.like(cb.lower(root.get("name")), pattern);
-                Predicate urlPred = cb.like(cb.lower(root.get("url")), pattern);
+                String pattern = "%" + escapeLike(q.toLowerCase()) + "%";
+                Predicate namePred = cb.like(cb.lower(root.get("name")), pattern, '\\');
+                Predicate urlPred = cb.like(cb.lower(root.get("url")), pattern, '\\');
 
                 Join<Source, Author> authorJoin = root.join("author", JoinType.LEFT);
-                Predicate authorPred = cb.like(cb.lower(authorJoin.get("name")), pattern);
+                Predicate authorPred = cb.like(cb.lower(authorJoin.get("name")), pattern, '\\');
 
                 predicates.add(cb.or(namePred, urlPred, authorPred));
             }

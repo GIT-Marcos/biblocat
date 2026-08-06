@@ -53,16 +53,16 @@ Lista paginada de sources con filtros.
 
 **Query parameters:**
 
-| Parámetro        | Tipo      | Default    | Descripción                                  |
-|------------------|-----------|------------|----------------------------------------------|
-| `q`              | `string`  | —          | Búsqueda por nombre, autor, url              |
-| `authorId`       | `UUID`    | —          | Filtrar por autor                            |
-| `tagId`          | `UUID`    | —          | Filtrar por tag                              |
-| `format`         | `string`  | —          | Filtrar por formato (`PDF`, `EPUB`, `MHTML`) |
-| `includeDeleted` | `boolean` | `false`    | Incluir orphan sources                       |
-| `page`           | `int`     | `0`        | Página (0-indexed)                           |
-| `size`           | `int`     | `20`       | Tamaño de página (máx. 100)                  |
-| `sort`           | `string`  | `name,asc` | Campo y dirección de ordenamiento            |
+| Parámetro        | Tipo      | Default    | Descripción                                                                                                      |
+|------------------|-----------|------------|------------------------------------------------------------------------------------------------------------------|
+| `q`              | `string`  | —          | Búsqueda parcial (case-insensitive) por nombre, autor, url; los caracteres `%`, `_` y `\` se buscan literalmente |
+| `authorId`       | `UUID`    | —          | Filtrar por autor                                                                                                |
+| `tagId`          | `UUID`    | —          | Filtrar por tag                                                                                                  |
+| `format`         | `string`  | —          | Filtrar por formato (`PDF`, `EPUB`, `MHTML`)                                                                     |
+| `includeDeleted` | `boolean` | `false`    | Incluir orphan sources                                                                                           |
+| `page`           | `int`     | `0`        | Página (0-indexed)                                                                                               |
+| `size`           | `int`     | `20`       | Tamaño de página (máx. 100)                                                                                      |
+| `sort`           | `string`  | `name,asc` | Campo y dirección de ordenamiento                                                                                |
 
 **Response `200 OK`:**
 
