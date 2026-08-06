@@ -445,6 +445,7 @@ tags). No debe rechazar la operación por el estado soft-deleteado. Ver EC25.
 | `SOURCE_NOT_FOUND`   | El `sourceId` no existe (fue purgado entre GET y POST) | Log WARN, no reintentar, continuar con el resto del batch |
 | `UNSUPPORTED_FORMAT` | Formato de archivo no soportado                        | Log WARN, no reintentar                                   |
 | `DUPLICATE_PATH`     | `pathLower` ya existe como activo                      | Log WARN, reintentar 1 vez                                |
+| `DUPLICATE_AUTHOR`   | `authors.name` ya existe (race)                        | Log WARN, reintentar 1 vez                                |
 
 **Nota sobre REACTIVATE y pathLower:** REACTIVATE no recibe `pathLower` porque el path no cambia respecto al estado
 conocido de la API. El caso B de clasificación (§2.5) requiere que el path exista en la API. Si el path hubiera

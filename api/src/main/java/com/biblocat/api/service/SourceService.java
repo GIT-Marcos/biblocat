@@ -39,7 +39,8 @@ public class SourceService {
             "MISSING_PATH_LOWER",
             "MISSING_CONTENT_HASH",
             "MISSING_SOURCE_ID",
-            "UNSUPPORTED_FORMAT"
+            "UNSUPPORTED_FORMAT",
+            "DUPLICATE_AUTHOR"
     );
 
     private final SourceRepository sourceRepository;
@@ -280,7 +281,7 @@ public class SourceService {
     }
 
     private static String mapErrorCode(Exception e) {
-        if (e instanceof DuplicateAuthorException) return "DUPLICATE_PATH";
+        if (e instanceof DuplicateAuthorException) return "DUPLICATE_AUTHOR";
         if (e instanceof DuplicatePathException) return "DUPLICATE_PATH";
         if (e instanceof SourceNotFoundException) return "SOURCE_NOT_FOUND";
         if (e instanceof IllegalArgumentException iae && KNOWN_OPERATION_ERRORS.contains(iae.getMessage())) {

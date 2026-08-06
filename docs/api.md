@@ -309,6 +309,7 @@ configurable.
 | `SOURCE_NOT_FOUND`     | El `sourceId` no existe (fue purgado entre GET y POST)                               | Log WARN, no reintentar, continuar con el resto del batch |
 | `UNSUPPORTED_FORMAT`   | Formato de archivo no soportado                                                      | Log WARN, no reintentar                                   |
 | `DUPLICATE_PATH`       | `pathLower` ya existe como fuente activa (comprobado en CREATE, RENAME y REACTIVATE) | Log WARN, reintentar 1 vez                                |
+| `DUPLICATE_AUTHOR`     | `authors.name` ya existe (race entre batches en CREATE)                              | Log WARN, reintentar 1 vez                                |
 
 **Respaldo de unicidad:** si una operación viola el índice único parcial `uq_sources_active_path_lower` (p. ej. por una
 race entre batches), la API traduce la violación a `DUPLICATE_PATH` en vez de un código interno. El chequeo depende del
