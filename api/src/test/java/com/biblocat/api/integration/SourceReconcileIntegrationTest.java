@@ -36,6 +36,7 @@ class SourceReconcileIntegrationTest extends AbstractPostgresIntegrationTest {
         ops.add(op("REACTIVATE", Map.of(
                 "sourceId", reactivate,
                 "path", "Autor/react.pdf",
+                "pathLower", "autor/react.pdf",
                 "contentHash", "hashB2")));
         ops.add(op("UPDATE", Map.of("sourceId", update, "contentHash", "hashA2")));
         ops.add(op("RENAME", Map.of(
@@ -128,11 +129,11 @@ class SourceReconcileIntegrationTest extends AbstractPostgresIntegrationTest {
                 "MISSING_PATH",
                 "MISSING_PATH_LOWER",
                 "MISSING_CONTENT_HASH",
-                "UNSUPPORTED_FORMAT",
+                "MISSING_FORMAT",
                 "MISSING_SOURCE_ID",
                 "MISSING_CONTENT_HASH",
                 "MISSING_PATH",
-                "MISSING_CONTENT_HASH",
+                "MISSING_PATH_LOWER",
                 "MISSING_SOURCE_ID");
 
         assertThat(data.countSourcesByName("valida.pdf")).isEqualTo(1);
@@ -294,20 +295,21 @@ class SourceReconcileIntegrationTest extends AbstractPostgresIntegrationTest {
     }
 
     @Test
-    void reactivate_NoModificaPathLowerYPreservaMetadatos() throws Exception {
+    void reactivate_ActualizaPathLowerYPreservaMetadatos() throws Exception {
         UUID id = data.insertSourceWithMetadata("react.pdf", "Autor/react.pdf", "autor/react.pdf", "hashH",
                 1999, "2ª edición", null, true);
 
         String body = postReconcile(List.of(op("REACTIVATE", Map.of(
                 "sourceId", id,
                 "path", "Otro/react.pdf",
+                "pathLower", "otro/react.pdf",
                 "contentHash", "hashH2"))));
         ReconcileResponse response = objectMapper.readValue(body, ReconcileResponse.class);
 
         assertThat(response.reactivated()).isEqualTo(1);
         assertThat(response.errors()).isEmpty();
         assertThat(data.deletedAtOf(id)).isNull();
-        assertThat(data.pathLowerOf(id)).isEqualTo("autor/react.pdf");
+        assertThat(data.pathLowerOf(id)).isEqualTo("otro/react.pdf");
         assertThat(data.pathOf(id)).isEqualTo("Otro/react.pdf");
         assertThat(data.contentHashOf(id)).isEqualTo("hashH2");
         assertThat(data.yearOf(id)).isEqualTo(1999);
@@ -343,6 +345,7 @@ class SourceReconcileIntegrationTest extends AbstractPostgresIntegrationTest {
         String body = postReconcile(List.of(op("REACTIVATE", Map.of(
                 "sourceId", orphan,
                 "path", "Autor/x.pdf",
+                "pathLower", "autor/x.pdf",
                 "contentHash", "h3"))));
         ReconcileResponse response = objectMapper.readValue(body, ReconcileResponse.class);
 
@@ -393,4 +396,4 @@ class SourceReconcileIntegrationTest extends AbstractPostgresIntegrationTest {
         return map;
     }
 
-    }
+}

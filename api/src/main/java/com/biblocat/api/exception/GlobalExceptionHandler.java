@@ -1,5 +1,6 @@
 package com.biblocat.api.exception;
 
+import jakarta.validation.ConstraintViolationException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.core.Ordered;
@@ -91,6 +92,16 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
                 HttpStatus.BAD_REQUEST, "Invalid parameter: " + ex.getName());
         detail.setType(URI.create("https://api.biblocat.local/errors/invalid-request-parameter"));
         detail.setTitle("Invalid Request Parameter");
+        return detail;
+    }
+
+    @ExceptionHandler(ConstraintViolationException.class)
+    ProblemDetail handle(ConstraintViolationException ex) {
+        log.warn("Constraint violation: {}", ex.getMessage());
+        ProblemDetail detail = ProblemDetail.forStatusAndDetail(
+                HttpStatus.BAD_REQUEST, "Validation failed: " + ex.getMessage());
+        detail.setType(URI.create("https://api.biblocat.local/errors/constraint-violation"));
+        detail.setTitle("Constraint Violation");
         return detail;
     }
 

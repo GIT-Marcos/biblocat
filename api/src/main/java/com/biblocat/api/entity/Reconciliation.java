@@ -1,14 +1,11 @@
 package com.biblocat.api.entity;
 
-import jakarta.persistence.Column;
-import jakarta.persistence.Entity;
-import jakarta.persistence.Id;
-import jakarta.persistence.Table;
-import jakarta.persistence.EntityListeners;
-import java.time.Instant;
+import jakarta.persistence.*;
 import org.springframework.data.annotation.CreatedDate;
 import org.springframework.data.annotation.LastModifiedDate;
 import org.springframework.data.jpa.domain.support.AuditingEntityListener;
+
+import java.time.Instant;
 
 @Entity
 @EntityListeners(AuditingEntityListener.class)
@@ -20,6 +17,10 @@ public class Reconciliation {
 
     @Column(nullable = false)
     private boolean pending;
+
+    @Version
+    @Column(name = "version", nullable = false)
+    private Long version;
 
     @CreatedDate
     @Column(name = "created_at", nullable = false, updatable = false)
@@ -43,6 +44,10 @@ public class Reconciliation {
 
     public boolean isPending() {
         return pending;
+    }
+
+    public Long getVersion() {
+        return version;
     }
 
     public void setPending(boolean pending) {

@@ -13,6 +13,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
+import java.util.Objects;
 import java.util.UUID;
 
 @Service
@@ -75,6 +76,7 @@ public class TagService {
     }
 
     private static String normalize(String name) {
+        Objects.requireNonNull(name, "Tag name must not be null");
         return name.strip().toLowerCase();
     }
 }

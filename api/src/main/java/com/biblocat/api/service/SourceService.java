@@ -14,6 +14,9 @@ import com.biblocat.api.mapper.SourceMapper;
 import com.biblocat.api.repository.SourcePaginationRepository;
 import com.biblocat.api.repository.SourceRepository;
 import com.biblocat.api.repository.TagRepository;
+import com.biblocat.api.validation.ReconcileOperationValidator;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -39,9 +42,12 @@ public class SourceService {
             "MISSING_PATH_LOWER",
             "MISSING_CONTENT_HASH",
             "MISSING_SOURCE_ID",
+            "MISSING_FORMAT",
             "UNSUPPORTED_FORMAT",
             "DUPLICATE_AUTHOR"
     );
+
+    private static final Logger log = LoggerFactory.getLogger(SourceService.class);
 
     private final SourceRepository sourceRepository;
     private final SourcePaginationRepository sourcePaginationRepository;
@@ -49,10 +55,12 @@ public class SourceService {
     private final TagRepository tagRepository;
     private final Clock clock;
     private final TransactionTemplate transactionTemplate;
+    private final ReconcileOperationValidator reconcileValidator;
 
     public SourceService(SourceRepository sourceRepository, SourcePaginationRepository sourcePaginationRepository,
                          AuthorService authorService, TagRepository tagRepository, Clock clock,
-                         PlatformTransactionManager transactionManager) {
+                         PlatformTransactionManager transactionManager,
+                         ReconcileOperationValidator reconcileValidator) {
         this.sourceRepository = sourceRepository;
         this.sourcePaginationRepository = sourcePaginationRepository;
         this.authorService = authorService;
@@ -60,6 +68,7 @@ public class SourceService {
         this.clock = clock;
         this.transactionTemplate = new TransactionTemplate(transactionManager);
         transactionTemplate.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
+        this.reconcileValidator = reconcileValidator;
     }
 
     @Transactional(readOnly = true)
@@ -145,6 +154,7 @@ public class SourceService {
         for (ReconcileOperationType type : order) {
             for (ReconcileOperation op : grouped.getOrDefault(type, List.of())) {
                 try {
+                    reconcileValidator.validate(op);
                     transactionTemplate.executeWithoutResult(status -> {
                         switch (type) {
                             case CREATE -> processCreate(op);
@@ -162,7 +172,15 @@ public class SourceService {
                         case REACTIVATE -> reactivated++;
                     }
                 } catch (Exception e) {
-                    errors.add(new OperationError(type, op.sourceId(), op.path(), mapErrorCode(e)));
+                    String code = mapErrorCode(e);
+                    if ("INTERNAL_ERROR".equals(code)) {
+                        log.error("Reconcile op failed unexpectedly: type={}, sourceId={}, path={}",
+                                type, op.sourceId(), op.path(), e);
+                    } else {
+                        log.warn("Reconcile op failed: type={}, sourceId={}, path={}, code={}",
+                                type, op.sourceId(), op.path(), code);
+                    }
+                    errors.add(new OperationError(type, op.sourceId(), op.path(), code));
                 }
             }
         }
@@ -172,12 +190,6 @@ public class SourceService {
     }
 
     private void processCreate(ReconcileOperation op) {
-        if (op.name() == null || op.name().isBlank()) throw new IllegalArgumentException("MISSING_NAME");
-        if (op.path() == null || op.path().isBlank()) throw new IllegalArgumentException("MISSING_PATH");
-        if (op.pathLower() == null || op.pathLower().isBlank())
-            throw new IllegalArgumentException("MISSING_PATH_LOWER");
-        if (op.contentHash() == null || op.contentHash().isBlank())
-            throw new IllegalArgumentException("MISSING_CONTENT_HASH");
         FileFormat format = parseFormat(op.fileFormat());
 
         if (sourceRepository.existsByPathLowerIgnoreCaseAndDeletedAtIsNull(op.pathLower())) {
@@ -201,11 +213,6 @@ public class SourceService {
     }
 
     private void processRename(ReconcileOperation op) {
-        if (op.sourceId() == null) throw new IllegalArgumentException("MISSING_SOURCE_ID");
-        if (op.name() == null || op.name().isBlank()) throw new IllegalArgumentException("MISSING_NAME");
-        if (op.path() == null || op.path().isBlank()) throw new IllegalArgumentException("MISSING_PATH");
-        if (op.pathLower() == null || op.pathLower().isBlank())
-            throw new IllegalArgumentException("MISSING_PATH_LOWER");
         Source source = sourceRepository.findByIdIncludeDeleted(op.sourceId())
                 .orElseThrow(() -> new SourceNotFoundException(op.sourceId()));
 
@@ -230,9 +237,6 @@ public class SourceService {
     }
 
     private void processUpdate(ReconcileOperation op) {
-        if (op.sourceId() == null) throw new IllegalArgumentException("MISSING_SOURCE_ID");
-        if (op.contentHash() == null || op.contentHash().isBlank())
-            throw new IllegalArgumentException("MISSING_CONTENT_HASH");
         Source source = sourceRepository.findByIdIncludeDeleted(op.sourceId())
                 .orElseThrow(() -> new SourceNotFoundException(op.sourceId()));
 
@@ -241,7 +245,6 @@ public class SourceService {
     }
 
     private void processDelete(ReconcileOperation op) {
-        if (op.sourceId() == null) throw new IllegalArgumentException("MISSING_SOURCE_ID");
         Source source = sourceRepository.findByIdIncludeDeleted(op.sourceId())
                 .orElseThrow(() -> new SourceNotFoundException(op.sourceId()));
 
@@ -252,10 +255,6 @@ public class SourceService {
     }
 
     private void processReactivate(ReconcileOperation op) {
-        if (op.sourceId() == null) throw new IllegalArgumentException("MISSING_SOURCE_ID");
-        if (op.path() == null || op.path().isBlank()) throw new IllegalArgumentException("MISSING_PATH");
-        if (op.contentHash() == null || op.contentHash().isBlank())
-            throw new IllegalArgumentException("MISSING_CONTENT_HASH");
         Source source = sourceRepository.findByIdIncludeDeleted(op.sourceId())
                 .orElseThrow(() -> new SourceNotFoundException(op.sourceId()));
 
@@ -265,13 +264,14 @@ public class SourceService {
 
         source.setDeletedAt(null);
         source.setPath(op.path());
+        source.setPathLower(op.pathLower());
         source.setContentHash(op.contentHash());
         sourceRepository.save(source);
     }
 
     private static FileFormat parseFormat(String raw) {
         if (raw == null || raw.isBlank()) {
-            throw new IllegalArgumentException("UNSUPPORTED_FORMAT");
+            throw new IllegalArgumentException("MISSING_FORMAT");
         }
         try {
             return FileFormat.valueOf(raw.trim().toUpperCase());

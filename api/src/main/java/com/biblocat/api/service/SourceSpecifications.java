@@ -7,12 +7,11 @@ import com.biblocat.api.entity.Tag;
 import jakarta.persistence.criteria.Join;
 import jakarta.persistence.criteria.JoinType;
 import jakarta.persistence.criteria.Predicate;
+import org.springframework.data.jpa.domain.Specification;
 
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
-
-import org.springframework.data.jpa.domain.Specification;
 
 public final class SourceSpecifications {
 
@@ -25,9 +24,11 @@ public final class SourceSpecifications {
                 .replace("_", "\\_");
     }
 
-    public static Specification<Source> withFilter(String q, UUID authorId, UUID tagId, FileFormat format, boolean includeDeleted) {
+    public static Specification<Source> withFilter(String q, UUID authorId, UUID tagId,
+                                                   FileFormat format, boolean includeDeleted) {
         return (root, query, cb) -> {
             List<Predicate> predicates = new ArrayList<>();
+            Join<Source, Author> authorJoin = null;
 
             if (!includeDeleted) {
                 predicates.add(cb.isNull(root.get("deletedAt")));
@@ -38,14 +39,17 @@ public final class SourceSpecifications {
                 Predicate namePred = cb.like(cb.lower(root.get("name")), pattern, '\\');
                 Predicate urlPred = cb.like(cb.lower(root.get("url")), pattern, '\\');
 
-                Join<Source, Author> authorJoin = root.join("author", JoinType.LEFT);
+                authorJoin = root.join("author", JoinType.LEFT);
                 Predicate authorPred = cb.like(cb.lower(authorJoin.get("name")), pattern, '\\');
 
                 predicates.add(cb.or(namePred, urlPred, authorPred));
             }
 
             if (authorId != null) {
-                predicates.add(cb.equal(root.get("author").get("id"), authorId));
+                if (authorJoin == null) {
+                    authorJoin = root.join("author", JoinType.INNER);
+                }
+                predicates.add(cb.equal(authorJoin.get("id"), authorId));
             }
 
             if (tagId != null) {
