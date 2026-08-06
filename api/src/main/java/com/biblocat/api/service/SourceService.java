@@ -22,7 +22,11 @@ import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.TransactionDefinition;
+import org.springframework.transaction.annotation.Propagation;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.transaction.support.TransactionTemplate;
 
 import java.time.Clock;
 import java.util.*;
@@ -46,14 +50,18 @@ public class SourceService {
     private final AuthorService authorService;
     private final TagRepository tagRepository;
     private final Clock clock;
+    private final TransactionTemplate transactionTemplate;
 
     public SourceService(SourceRepository sourceRepository, SourcePaginationRepository sourcePaginationRepository,
-                         AuthorService authorService, TagRepository tagRepository, Clock clock) {
+                         AuthorService authorService, TagRepository tagRepository, Clock clock,
+                         PlatformTransactionManager transactionManager) {
         this.sourceRepository = sourceRepository;
         this.sourcePaginationRepository = sourcePaginationRepository;
         this.authorService = authorService;
         this.tagRepository = tagRepository;
         this.clock = clock;
+        this.transactionTemplate = new TransactionTemplate(transactionManager);
+        transactionTemplate.setPropagationBehavior(TransactionDefinition.PROPAGATION_REQUIRES_NEW);
     }
 
     @Transactional(readOnly = true)
@@ -120,6 +128,7 @@ public class SourceService {
         return SourceMapper.toResponse(sourceRepository.save(source));
     }
 
+    @Transactional(propagation = Propagation.NOT_SUPPORTED)
     public ReconcileResponse reconcile(ReconcileRequest request) {
         int created = 0, renamed = 0, updated = 0, deleted = 0, reactivated = 0;
         List<OperationError> errors = new ArrayList<>();
@@ -138,27 +147,21 @@ public class SourceService {
         for (ReconcileOperationType type : order) {
             for (ReconcileOperation op : grouped.getOrDefault(type, List.of())) {
                 try {
+                    transactionTemplate.executeWithoutResult(status -> {
+                        switch (type) {
+                            case CREATE -> processCreate(op);
+                            case RENAME -> processRename(op);
+                            case UPDATE -> processUpdate(op);
+                            case DELETE -> processDelete(op);
+                            case REACTIVATE -> processReactivate(op);
+                        }
+                    });
                     switch (type) {
-                        case CREATE -> {
-                            processCreate(op);
-                            created++;
-                        }
-                        case RENAME -> {
-                            processRename(op);
-                            renamed++;
-                        }
-                        case UPDATE -> {
-                            processUpdate(op);
-                            updated++;
-                        }
-                        case DELETE -> {
-                            processDelete(op);
-                            deleted++;
-                        }
-                        case REACTIVATE -> {
-                            processReactivate(op);
-                            reactivated++;
-                        }
+                        case CREATE -> created++;
+                        case RENAME -> renamed++;
+                        case UPDATE -> updated++;
+                        case DELETE -> deleted++;
+                        case REACTIVATE -> reactivated++;
                     }
                 } catch (Exception e) {
                     errors.add(new OperationError(type, op.sourceId(), op.path(), mapErrorCode(e)));

@@ -53,7 +53,7 @@ public class SourcePaginationRepository {
         }
 
         TypedQuery<Source> query = entityManager.createQuery(cq);
-        query.setFirstResult((int) pageable.getOffset());
+        query.setFirstResult((int) Math.min(pageable.getOffset(), Integer.MAX_VALUE - 1L));
         query.setMaxResults(pageable.getPageSize());
         List<Source> content = query.getResultList();
 
