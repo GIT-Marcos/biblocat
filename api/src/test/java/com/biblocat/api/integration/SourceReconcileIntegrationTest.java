@@ -314,6 +314,69 @@ class SourceReconcileIntegrationTest extends AbstractPostgresIntegrationTest {
         assertThat(data.editionOf(id)).isEqualTo("2ª edición");
     }
 
+    @Test
+    void rename_conPathLowerOcupadoActivo_DuplicatePath() throws Exception {
+        UUID target = data.insertSource("a.pdf", "Autor/a.pdf", "autor/a.pdf", "h1", "Autor");
+        UUID toMove = data.insertSource("b.pdf", "Autor/b.pdf", "autor/b.pdf", "h2", "Autor");
+
+        String body = postReconcile(List.of(op("RENAME", Map.of(
+                "sourceId", toMove,
+                "name", "b.pdf",
+                "path", "Autor/a.pdf",
+                "pathLower", "autor/a.pdf",
+                "fileFormat", "PDF"))));
+        ReconcileResponse response = objectMapper.readValue(body, ReconcileResponse.class);
+
+        assertThat(response.renamed()).isZero();
+        assertThat(response.errors()).hasSize(1);
+        assertThat(response.errors().getFirst().error()).isEqualTo("DUPLICATE_PATH");
+        assertThat(data.pathOf(toMove)).isEqualTo("Autor/b.pdf");
+    }
+
+    @Test
+    void reactivate_conPathLowerOcupadoActivo_DuplicatePath() throws Exception {
+        UUID owner = data.insertSource("a.pdf", "Autor/a.pdf", "autor/a.pdf", "h1", "Autor");
+        UUID orphan = data.insertSourceWithMetadata("b.pdf", "Autor/b.pdf", "autor/b.pdf", "h2",
+                null, null, null, true);
+        jdbcTemplate.update("UPDATE sources SET path_lower = 'autor/a.pdf' WHERE id = ?", orphan);
+
+        String body = postReconcile(List.of(op("REACTIVATE", Map.of(
+                "sourceId", orphan,
+                "path", "Autor/x.pdf",
+                "contentHash", "h3"))));
+        ReconcileResponse response = objectMapper.readValue(body, ReconcileResponse.class);
+
+        assertThat(response.reactivated()).isZero();
+        assertThat(response.errors()).hasSize(1);
+        assertThat(response.errors().getFirst().error()).isEqualTo("DUPLICATE_PATH");
+        assertThat(data.deletedAtOf(orphan)).isNotNull();
+    }
+
+    @Test
+    void create_conFormatoDesconocido_UnsupportedFormatYElRestoProcesa() throws Exception {
+        String body = postReconcile(List.of(
+                op("CREATE", Map.of(
+                        "name", "malo.pdf",
+                        "path", "A/malo.pdf",
+                        "pathLower", "a/malo.pdf",
+                        "contentHash", "hashBad",
+                        "fileFormat", "TXT")),
+                op("CREATE", Map.of(
+                        "name", "bueno.pdf",
+                        "path", "A/bueno.pdf",
+                        "pathLower", "a/bueno.pdf",
+                        "contentHash", "hashGood",
+                        "fileFormat", "PDF"))));
+        ReconcileResponse response = objectMapper.readValue(body, ReconcileResponse.class);
+
+        assertThat(response.created()).isEqualTo(1);
+        assertThat(response.errors()).hasSize(1);
+        assertThat(response.errors().getFirst().type().name()).isEqualTo("CREATE");
+        assertThat(response.errors().getFirst().error()).isEqualTo("UNSUPPORTED_FORMAT");
+        assertThat(data.countSourcesByName("bueno.pdf")).isEqualTo(1);
+        assertThat(data.countSourcesByName("malo.pdf")).isZero();
+    }
+
     private String postReconcile(List<Map<String, Object>> operations) throws Exception {
         String json = objectMapper.writeValueAsString(Map.of("operations", operations));
         return mvc.post().uri("/api/sources/reconcile")

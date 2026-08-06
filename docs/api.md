@@ -84,12 +84,8 @@ Lista paginada de sources con filtros.
           "name": "favorito"
         }
       ],
-      "year": null,
-      "edition": null,
-      "url": null,
       "createdAt": "2026-07-01T12:00:00Z",
-      "updatedAt": "2026-07-01T12:00:00Z",
-      "deletedAt": null
+      "updatedAt": "2026-07-01T12:00:00Z"
     }
   ],
   "page": 0,
@@ -98,6 +94,9 @@ Lista paginada de sources con filtros.
   "totalPages": 1
 }
 ```
+
+**Nota sobre nulos:** Los campos nulables (`year`, `edition`, `url`, `deletedAt`) se omiten de la respuesta JSON cuando
+son `null`. El frontend debe tratar la ausencia del campo como `null`.
 
 **Errors:**
 
@@ -152,6 +151,8 @@ petición. No es merge parcial — los valores ausentes se interpretan como `nul
 
 **Errors:** `400` — url inválida, año fuera de rango. `404` — source no encontrado.
 
+**Nota sobre orphans:** PATCH `/api/sources/{id}` y `PUT /api/sources/{id}/tags` operan también sobre orphan sources (soft-deleteados): los metadatos pueden editarse mientras el archivo no está en el FS. `GET` sin `includeDeleted=true` sigue excluyéndolos.
+
 ---
 
 #### `DELETE /api/sources/{id}`
@@ -186,8 +187,7 @@ Devuelve el estado conocido de todos los sources para que el Agent ejecute la re
     "id": "550e8400-e29b-41d4-a716-446655440000",
     "path": "Gabriel García Márquez/cien-anios.pdf",
     "pathLower": "gabriel garcía márquez/cien-anios.pdf",
-    "contentHash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-    "deletedAt": null
+    "contentHash": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
   }
 ]
 ```
@@ -257,6 +257,8 @@ Procesa un batch de operaciones enviadas por el Agent. Idempotente: operaciones 
 | `DELETE`     | ✓      | ✓          | —      | opcional | —           | —             | —            | —            |
 | `REACTIVATE` | ✓      | ✓          | —      | ✓        | —           | ✓             | —            | —            |
 
+`fileFormat` se valida en la API: un valor desconocido o ausente genera `UNSUPPORTED_FORMAT` por operación; el resto del batch continúa procesándose.
+
 **Response `200 OK`:**
 
 ```json
@@ -283,7 +285,10 @@ Procesa un batch de operaciones enviadas por el Agent. Idempotente: operaciones 
 ```
 
 **Reglas de ordenamiento:** El Agent envía las operaciones en el orden RENAME → UPDATE → REACTIVATE → CREATE → DELETE.
-La API procesa secuencialmente en el orden del array. Cada operación ve el estado resultante de la anterior.
+La API agrupa las operaciones por `type` y procesa los grupos en ese orden canónico; el orden del array solo define el
+orden dentro de cada grupo. Cada operación ve el estado resultante de las anteriores. Como el Agent ya envía las
+operaciones agrupadas y ordenadas de esa forma, ambos enfoques producen el mismo resultado; el agrupamiento por tipo en
+la API es una salvaguarda frente a batches desordenados.
 
 **Nota sobre transferencia de metadatos:** La transferencia por `contentHash` en CREATE (Opción B, ver
 `docs/issues/ISSUE-01-SafeSaveCrossFS.md`) busca orphans de escaneos anteriores. CREATE y DELETE en el mismo batch
@@ -294,16 +299,20 @@ Ver `agent.md §2.8.F EC32`.
 si reintentar. Excepciones: `4xx` (excluyendo `409`) no reintentar; `409` reintentar 1 vez; `5xx` reintentar con backoff
 configurable.
 
-| Código de error        | Causa                                                    | Acción del Agent                                          |
-|------------------------|----------------------------------------------------------|-----------------------------------------------------------|
-| `MISSING_NAME`         | Operación CREATE/RENAME sin `name`                       | Log ERROR, no reintentar, revisar configuración del Agent |
-| `MISSING_PATH`         | Operación CREATE/RENAME/REACTIVATE sin `path`            | Log ERROR, no reintentar, revisar configuración del Agent |
-| `MISSING_PATH_LOWER`   | Operación CREATE/RENAME sin `pathLower`                  | Log ERROR, no reintentar, revisar configuración del Agent |
-| `MISSING_CONTENT_HASH` | Operación CREATE/UPDATE/REACTIVATE sin `contentHash`     | Log ERROR, no reintentar, revisar configuración del Agent |
-| `MISSING_SOURCE_ID`    | Operación RENAME/UPDATE/DELETE/REACTIVATE sin `sourceId` | Log ERROR, no reintentar, revisar configuración del Agent |
-| `SOURCE_NOT_FOUND`     | El `sourceId` no existe (fue purgado entre GET y POST)   | Log WARN, no reintentar, continuar con el resto del batch |
-| `UNSUPPORTED_FORMAT`   | Formato de archivo no soportado                          | Log WARN, no reintentar                                   |
-| `DUPLICATE_PATH`       | `pathLower` ya existe como activo                        | Log WARN, reintentar 1 vez                                |
+| Código de error        | Causa                                                                                | Acción del Agent                                          |
+|------------------------|--------------------------------------------------------------------------------------|-----------------------------------------------------------|
+| `MISSING_NAME`         | Operación CREATE/RENAME sin `name`                                                   | Log ERROR, no reintentar, revisar configuración del Agent |
+| `MISSING_PATH`         | Operación CREATE/RENAME/REACTIVATE sin `path`                                        | Log ERROR, no reintentar, revisar configuración del Agent |
+| `MISSING_PATH_LOWER`   | Operación CREATE/RENAME sin `pathLower`                                              | Log ERROR, no reintentar, revisar configuración del Agent |
+| `MISSING_CONTENT_HASH` | Operación CREATE/UPDATE/REACTIVATE sin `contentHash`                                 | Log ERROR, no reintentar, revisar configuración del Agent |
+| `MISSING_SOURCE_ID`    | Operación RENAME/UPDATE/DELETE/REACTIVATE sin `sourceId`                             | Log ERROR, no reintentar, revisar configuración del Agent |
+| `SOURCE_NOT_FOUND`     | El `sourceId` no existe (fue purgado entre GET y POST)                               | Log WARN, no reintentar, continuar con el resto del batch |
+| `UNSUPPORTED_FORMAT`   | Formato de archivo no soportado                                                      | Log WARN, no reintentar                                   |
+| `DUPLICATE_PATH`       | `pathLower` ya existe como fuente activa (comprobado en CREATE, RENAME y REACTIVATE) | Log WARN, reintentar 1 vez                                |
+
+**Respaldo de unicidad:** si una operación viola el índice único parcial `uq_sources_active_path_lower` (p. ej. por una
+race entre batches), la API traduce la violación a `DUPLICATE_PATH` en vez de un código interno. El chequeo depende del
+nombre de la constraint; si una migración futura lo renombra, actualizar el mapeo en `SourceService.mapErrorCode`.
 
 **Reglas de procesamiento:**
 
@@ -312,13 +321,15 @@ configurable.
 - **RENAME**: actualiza path y pathLower del source identificado por `sourceId`. Re-infere el autor si se envía
   `authorName`. Si el source estaba soft-deleteado, lo reactiva automáticamente.
   Si `sourceId` no existe, responde `SOURCE_NOT_FOUND` en `errors`.
+  Si el nuevo `pathLower` ya existe activo en otro source, responde `DUPLICATE_PATH` en `errors`.
 - **UPDATE**: actualiza `contentHash` del source identificado por `sourceId`. No modifica otros campos.
   Si `sourceId` no existe, responde `SOURCE_NOT_FOUND` en `errors`.
 - **DELETE**: aplica soft-delete (setea `deleted_at = now()`) al source identificado por `sourceId`. Idempotente: si ya
   estaba soft-deleteado, es no-op.
   Si `sourceId` no existe, responde `SOURCE_NOT_FOUND` en `errors`.
 - **REACTIVATE**: limpia `deleted_at` del source identificado por `sourceId`. Actualiza path y contentHash. Preserva
-  metadatos existentes.
+  metadatos existentes. Si el `pathLower` del source a reactivar ya pertenece a otro source activo, responde
+  `DUPLICATE_PATH` y no lo reactiva.
   Si `sourceId` no existe, responde `SOURCE_NOT_FOUND` en `errors`.
   **Nota:** REACTIVATE no modifica `pathLower`. El caso B de clasificación (`agent.md §2.5`) requiere que el path
   exista en la API, por lo que el path no cambia respecto al estado conocido. Si el path hubiera cambiado, el Agent
@@ -623,14 +634,14 @@ No se utiliza cursor/keyset. La página inicial es `0` (0-indexed).
 
 Solo los siguientes campos pueden usarse en `sort`. Cualquier otro → `400`.
 
-| Campo         | Notas                                            |
-|---------------|--------------------------------------------------|
-| `name`        | Nombre del archivo                               |
-| `path`        | Path relativo                                    |
-| `fileFormat`  | Formato (PDF, EPUB, MHTML)                       |
-| `year`        | Año de publicación                               |
-| `createdAt`   | Fecha de creación del registro                   |
-| `updatedAt`   | Fecha de última modificación                     |
+| Campo         | Notas                                                                                                                                                       |
+|---------------|-------------------------------------------------------------------------------------------------------------------------------------------------------------|
+| `name`        | Nombre del archivo                                                                                                                                          |
+| `path`        | Path relativo                                                                                                                                               |
+| `fileFormat`  | Formato (PDF, EPUB, MHTML)                                                                                                                                  |
+| `year`        | Año de publicación                                                                                                                                          |
+| `createdAt`   | Fecha de creación del registro                                                                                                                              |
+| `updatedAt`   | Fecha de última modificación                                                                                                                                |
 | `author.name` | Nombre del autor. Orden por LEFT JOIN con `authors`: los sources sin autor se incluyen; con PostgreSQL los nulls quedan al final en ASC y al inicio en DESC |
 
 #### 3.5.4. Contrato de respuesta
@@ -650,14 +661,14 @@ No se exponen los campos adicionales de Spring Data (`pageable`, `sort`, `first`
 
 #### 3.5.5. Errores y casos límite
 
-| Caso                                    | Respuesta | Notas                                |
-|-----------------------------------------|-----------|--------------------------------------|
-| `page`/`size` no numéricos o `page` < 0 | `400`     | Type mismatch (RFC 9457, ver §6)     |
-| `size` no numérico o < 1                | `400`     | Mínimo 1 (RFC 9457, ver §6)          |
-| `sort` con formato inválido (ej. `name:asc`) | `400` | Separador `:` no soportado (RFC 9457, ver §6) |
-| `sort` con campo fuera de la lista      | `400`     | Campo no ordenable                   |
-| `sort` con dirección inválida           | `400`     | Solo `asc`/`desc`                    |
-| `page` > `totalPages`                   | `200`     | `content: []`, no es error           |
+| Caso                                         | Respuesta | Notas                                         |
+|----------------------------------------------|-----------|-----------------------------------------------|
+| `page`/`size` no numéricos o `page` < 0      | `400`     | Type mismatch (RFC 9457, ver §6)              |
+| `size` no numérico o < 1                     | `400`     | Mínimo 1 (RFC 9457, ver §6)                   |
+| `sort` con formato inválido (ej. `name:asc`) | `400`     | Separador `:` no soportado (RFC 9457, ver §6) |
+| `sort` con campo fuera de la lista           | `400`     | Campo no ordenable                            |
+| `sort` con dirección inválida                | `400`     | Solo `asc`/`desc`                             |
+| `page` > `totalPages`                        | `200`     | `content: []`, no es error                    |
 
 #### 3.5.6. Política por endpoint
 
@@ -823,17 +834,17 @@ Ejemplo de respuesta `404`:
 
 ### 6.2. Tabla de excepciones
 
-| Excepción                             | HTTP | Disparo                                                                     |
-|---------------------------------------|------|-----------------------------------------------------------------------------|
-| `SourceNotFoundException`             | 404  | Source no encontrado por ID                                                 |
-| `TagNotFoundException`                | 404  | Tag no encontrado por ID                                                    |
-| `ActiveSourceException`               | 409  | Intento de purgar un source activo (`deleted_at IS NULL`)                   |
-| `TagAlreadyExistsException`           | 409  | Tag con ese nombre ya existe                                                |
-| `DuplicatePathException`              | 409  | `pathLower` ya existe como activo en `POST /api/sources/reconcile` (CREATE) |
-| `MethodArgumentNotValidException`     | 400  | Validación `@Valid` falla en cualquier endpoint                             |
-| `InvalidSortFieldException`           | 400  | `sort` con campo fuera de la whitelist (§3.5.3)                             |
-| `InvalidPaginationParameterException` | 400  | `page`/`size`/dirección/formato de `sort` inválidos (§3.5.5)                |
-| `Exception` (catch-all)               | 500  | Cualquier error no contemplado                                              |
+| Excepción                             | HTTP | Disparo                                                                                                                                           |
+|---------------------------------------|------|---------------------------------------------------------------------------------------------------------------------------------------------------|
+| `SourceNotFoundException`             | 404  | Source no encontrado por ID                                                                                                                       |
+| `TagNotFoundException`                | 404  | Tag no encontrado por ID                                                                                                                          |
+| `ActiveSourceException`               | 409  | Intento de purgar un source activo (`deleted_at IS NULL`)                                                                                         |
+| `TagAlreadyExistsException`           | 409  | Tag con ese nombre ya existe                                                                                                                      |
+| `DuplicatePathException`              | 409  | `pathLower` ya existe como activo en `POST /api/sources/reconcile` (CREATE, RENAME, REACTIVATE)                                                   |
+| `MethodArgumentNotValidException`     | 400  | Validación `@Valid` falla en cualquier endpoint                                                                                                   |
+| `InvalidSortFieldException`           | 400  | `sort` con campo fuera de la whitelist (cualquier token que se asimila campo y no está en la whitelist)                                           |
+| `InvalidPaginationParameterException` | 400  | `page`/`size` no numéricos o negativos, `size` < 1, separador `:` en `sort`, o dirección `asc`/`desc` colocada en una posición no final de `sort` |
+| `Exception` (catch-all)               | 500  | Cualquier error no contemplado                                                                                                                    |
 
 ## 7. Perfiles YAML
 
@@ -874,13 +885,13 @@ producción. Ver `architecture.md §5.1`.
 
 ### 8.2. Stack de testing y dependencias
 
-| Dependencia                          | Propósito                                                                     | Scope |
-|--------------------------------------|-------------------------------------------------------------------------------|-------|
-| `spring-boot-starter-test`           | JUnit 5, Mockito, AssertJ, json-path (ya presente en el pom)                  | test  |
-| `spring-boot-starter-webmvc-test`    | Autoconfig de MVC para tests (`@WebMvcTest`, `@AutoConfigureMockMvc`) — en Boot 4.x ya no está incluido en starter-test | test |
-| `spring-boot-testcontainers`         | Anotación `@ServiceConnection` (Spring Boot 4.1)                              | test  |
-| `org.testcontainers:testcontainers-junit-jupiter` | Integración JUnit 5                         | test  |
-| `org.testcontainers:testcontainers-postgresql`    | Contenedor PostgreSQL                         | test  |
+| Dependencia                                       | Propósito                                                                                                               | Scope |
+|---------------------------------------------------|-------------------------------------------------------------------------------------------------------------------------|-------|
+| `spring-boot-starter-test`                        | JUnit 5, Mockito, AssertJ, json-path (ya presente en el pom)                                                            | test  |
+| `spring-boot-starter-webmvc-test`                 | Autoconfig de MVC para tests (`@WebMvcTest`, `@AutoConfigureMockMvc`) — en Boot 4.x ya no está incluido en starter-test | test  |
+| `spring-boot-testcontainers`                      | Anotación `@ServiceConnection` (Spring Boot 4.1)                                                                        | test  |
+| `org.testcontainers:testcontainers-junit-jupiter` | Integración JUnit 5                                                                                                     | test  |
+| `org.testcontainers:testcontainers-postgresql`    | Contenedor PostgreSQL                                                                                                   | test  |
 
 **Versionado de Testcontainers:** en Boot 4.1 la versión viene gestionada por el parent BOM vía la propiedad
 `${testcontainers.version}` (= 2.0.5). Los BOM anidados del parent **no son transitivos** para `scope=import`
@@ -1013,27 +1024,29 @@ La estrategia de testing se considera completa cuando:
 
 ### 8.6. Estado de la implementación
 
-La suite está implementada y compila; los slice tests están verdes (30 tests). Pendiente de ejecución: los tests
-de integración (55 tests) requieren Docker Desktop.
+La suite completa está verde sobre Docker Desktop: 91 tests (33 slice + 58 integración). La suite de integración
+se ejecutó y quedó verde sobre `postgres:16-alpine` (Testcontainers).
 
 **Implementado:**
 
 - Dependencias de test en `api/pom.xml` (§8.2), con `dependencyManagement` del BOM de Testcontainers.
-- Infraestructura: `TestContainerConfig`, `AbstractPostgresIntegrationTest`, `ContextSmokeIntegrationTest`.
+- Infraestructura: `TestContainerConfig`, `AbstractPostgresIntegrationTest`, `ContextSmokeIntegrationTest`
+  (smoke: contexto + Flyway — 2 tests).
 - `SourceReconcileIntegrationTest` (reconcile: batch, orden, transferencia por hash, matriz de errores,
-  REACTIVATE/CREATE/DUPLICATE_PATH) — 13 tests.
+  REACTIVATE/CREATE/DUPLICATE_PATH) — 16 tests.
 - `SourceQueryIntegrationTest` (paths, listado con filtros, paginación real y clamp, getById, PATCH, purge,
   PUT tags) — 25 tests.
 - `TagAuthorReconciliationIntegrationTest` (CRUD tags con normalización y cascade, authors, trío reconcile) —
   15 tests.
-- Slice web: `SourceControllerTest` (17), `TagControllerTest` (8), `AuthorControllerTest` (2),
-  `ReconciliationControllerTest` (3) — 30 tests, ejecutables sin Docker.
+- Slice web: `SourceControllerTest` (20), `TagControllerTest` (8), `AuthorControllerTest` (2),
+  `ReconciliationControllerTest` (3) — 33 tests, ejecutables sin Docker.
 
 **Notas de la implementación:**
 
 - Boot 4.x movió la autoconfig de MVC a `spring-boot-starter-webmvc-test`; `@WebMvcTest` y
   `@AutoConfigureMockMvc` viven en `org.springframework.boot.webmvc.test.autoconfigure`.
 - Jackson 3.x: los tests importan `tools.jackson.databind.*`.
-- `validatePagination` reporta todo sort inválido como `invalid-pagination-parameter`
-  (`docs/issues/ISSUE-06`); los tests reflejan el comportamiento actual.
+- `validatePagination` clasifica los errores de `sort`: campo fuera de la whitelist → `invalid-sort-field`;
+  separador `:`, dirección `asc`/`desc` en posición no final, o `page`/`size` inválidos → `invalid-pagination-parameter`;
+  los tests reflejan el comportamiento actual.
 - Definir la versión de PostgreSQL de producción (§1.3). La versión probada en tests es `16`.

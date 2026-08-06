@@ -1,6 +1,5 @@
 package com.biblocat.api.dto.request;
 
-import com.biblocat.api.entity.FileFormat;
 import jakarta.validation.constraints.NotNull;
 
 import java.util.UUID;
@@ -19,7 +18,7 @@ public record ReconcileOperation(
 
         String contentHash,
 
-        FileFormat fileFormat,
+        String fileFormat,
 
         String authorName
 ) {

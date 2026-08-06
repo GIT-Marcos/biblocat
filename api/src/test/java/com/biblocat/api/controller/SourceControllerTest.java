@@ -59,7 +59,7 @@ class SourceControllerTest {
         JsonNode json = objectMapper.readTree(body);
 
         assertThat(json.get("status").asInt()).isEqualTo(400);
-        assertThat(json.get("title").asString()).isEqualTo("Invalid Pagination Parameter");
+        assertThat(json.get("title").asString()).isEqualTo("Invalid Sort Field");
         verify(sourceService, never()).findAll(any(), any(), any(), any(), anyBoolean(), any());
     }
 
@@ -119,6 +119,17 @@ class SourceControllerTest {
     void reconcile_OperationsVacio_400SinLlamarAlService() {
         String request = """
                 {"operations": []}
+                """;
+        assertThat(mvc.post().uri("/api/sources/reconcile").contentType("application/json").content(request)
+                .exchange()).hasStatus(HttpStatus.BAD_REQUEST);
+        verify(sourceService, never()).reconcile(any());
+    }
+
+    @Test
+    void reconcile_OperationSinType_400SinLlamarAlService() {
+        String request = """
+                {"operations": [{"name": "a.pdf", "path": "Autor/a.pdf",
+                  "pathLower": "autor/a.pdf", "contentHash": "h1", "fileFormat": "PDF"}]}
                 """;
         assertThat(mvc.post().uri("/api/sources/reconcile").contentType("application/json").content(request)
                 .exchange()).hasStatus(HttpStatus.BAD_REQUEST);
@@ -216,6 +227,24 @@ class SourceControllerTest {
     @Test
     void list_SortConSeparadorDosPuntos_400() {
         assertThat(mvc.get().uri("/api/sources").queryParam("sort", "author.name:asc").exchange())
+                .hasStatus(HttpStatus.BAD_REQUEST);
+        verify(sourceService, never()).findAll(any(), any(), any(), any(), anyBoolean(), any());
+    }
+
+    @Test
+    void list_SortConCampoUnicoInexistente_400InvalidSortField() throws Exception {
+        String body = mvc.get().uri("/api/sources").queryParam("sort", "campoInexistente").exchange()
+                .getResponse().getContentAsString();
+        JsonNode json = objectMapper.readTree(body);
+
+        assertThat(json.get("status").asInt()).isEqualTo(400);
+        assertThat(json.get("title").asString()).isEqualTo("Invalid Sort Field");
+        verify(sourceService, never()).findAll(any(), any(), any(), any(), anyBoolean(), any());
+    }
+
+    @Test
+    void list_SortDireccionEnPosicionMedia_400() {
+        assertThat(mvc.get().uri("/api/sources").queryParam("sort", "name,asc,createdAt").exchange())
                 .hasStatus(HttpStatus.BAD_REQUEST);
         verify(sourceService, never()).findAll(any(), any(), any(), any(), anyBoolean(), any());
     }

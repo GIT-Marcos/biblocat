@@ -17,6 +17,7 @@ import com.biblocat.api.mapper.SourceMapper;
 import com.biblocat.api.repository.SourcePaginationRepository;
 import com.biblocat.api.repository.SourceRepository;
 import com.biblocat.api.repository.TagRepository;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.domain.Specification;
@@ -30,6 +31,15 @@ import java.util.stream.Collectors;
 @Service
 @Transactional
 public class SourceService {
+
+    private static final Set<String> KNOWN_OPERATION_ERRORS = Set.of(
+            "MISSING_NAME",
+            "MISSING_PATH",
+            "MISSING_PATH_LOWER",
+            "MISSING_CONTENT_HASH",
+            "MISSING_SOURCE_ID",
+            "UNSUPPORTED_FORMAT"
+    );
 
     private final SourceRepository sourceRepository;
     private final SourcePaginationRepository sourcePaginationRepository;
@@ -167,14 +177,14 @@ public class SourceService {
             throw new IllegalArgumentException("MISSING_PATH_LOWER");
         if (op.contentHash() == null || op.contentHash().isBlank())
             throw new IllegalArgumentException("MISSING_CONTENT_HASH");
-        if (op.fileFormat() == null) throw new IllegalArgumentException("UNSUPPORTED_FORMAT");
+        FileFormat format = parseFormat(op.fileFormat());
 
         if (sourceRepository.existsByPathLowerIgnoreCaseAndDeletedAtIsNull(op.pathLower())) {
             throw new DuplicatePathException(op.pathLower());
         }
 
         Author author = op.authorName() != null ? authorService.findOrCreate(op.authorName()) : null;
-        Source source = new Source(op.name(), op.path(), op.pathLower(), op.contentHash(), op.fileFormat(), author);
+        Source source = new Source(op.name(), op.path(), op.pathLower(), op.contentHash(), format, author);
 
         List<Source> orphans = sourceRepository.findOrphansByContentHash(op.contentHash());
         if (orphans.size() == 1) {
@@ -195,14 +205,17 @@ public class SourceService {
         if (op.path() == null || op.path().isBlank()) throw new IllegalArgumentException("MISSING_PATH");
         if (op.pathLower() == null || op.pathLower().isBlank())
             throw new IllegalArgumentException("MISSING_PATH_LOWER");
-        if (op.fileFormat() == null) throw new IllegalArgumentException("UNSUPPORTED_FORMAT");
         Source source = sourceRepository.findByIdIncludeDeleted(op.sourceId())
                 .orElseThrow(() -> new SourceNotFoundException(op.sourceId()));
+
+        if (sourceRepository.existsByPathLowerIgnoreCaseAndDeletedAtIsNullAndIdNot(op.pathLower(), op.sourceId())) {
+            throw new DuplicatePathException(op.pathLower());
+        }
 
         source.setName(op.name());
         source.setPath(op.path());
         source.setPathLower(op.pathLower());
-        source.setFileFormat(op.fileFormat());
+        source.setFileFormat(parseFormat(op.fileFormat()));
 
         if (op.authorName() != null) {
             source.setAuthor(authorService.findOrCreate(op.authorName()));
@@ -245,16 +258,38 @@ public class SourceService {
         Source source = sourceRepository.findByIdIncludeDeleted(op.sourceId())
                 .orElseThrow(() -> new SourceNotFoundException(op.sourceId()));
 
+        if (sourceRepository.existsByPathLowerIgnoreCaseAndDeletedAtIsNullAndIdNot(source.getPathLower(), op.sourceId())) {
+            throw new DuplicatePathException(source.getPathLower());
+        }
+
         source.setDeletedAt(null);
         source.setPath(op.path());
         source.setContentHash(op.contentHash());
         sourceRepository.save(source);
     }
 
+    private static FileFormat parseFormat(String raw) {
+        if (raw == null || raw.isBlank()) {
+            throw new IllegalArgumentException("UNSUPPORTED_FORMAT");
+        }
+        try {
+            return FileFormat.valueOf(raw.trim().toUpperCase());
+        } catch (IllegalArgumentException e) {
+            throw new IllegalArgumentException("UNSUPPORTED_FORMAT");
+        }
+    }
+
     private static String mapErrorCode(Exception e) {
         if (e instanceof DuplicatePathException) return "DUPLICATE_PATH";
         if (e instanceof SourceNotFoundException) return "SOURCE_NOT_FOUND";
-        if (e instanceof IllegalArgumentException iae) return iae.getMessage();
+        if (e instanceof IllegalArgumentException iae && KNOWN_OPERATION_ERRORS.contains(iae.getMessage())) {
+            return iae.getMessage();
+        }
+        if (e instanceof DataIntegrityViolationException dive
+                && dive.getMostSpecificCause().getMessage() != null
+                && dive.getMostSpecificCause().getMessage().contains("uq_sources_active_path_lower")) {
+            return "DUPLICATE_PATH";
+        }
         return "INTERNAL_ERROR";
     }
 }

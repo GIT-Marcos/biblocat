@@ -153,7 +153,7 @@ class SourceQueryIntegrationTest extends AbstractPostgresIntegrationTest {
         JsonNode json = objectMapper.readTree(body);
 
         assertThat(json.get("status").asInt()).isEqualTo(400);
-        assertThat(json.get("title").asString()).isEqualTo("Invalid Pagination Parameter");
+        assertThat(json.get("title").asString()).isEqualTo("Invalid Sort Field");
     }
 
     @Test

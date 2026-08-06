@@ -39,6 +39,12 @@ public class Tag {
         this.name = name;
     }
 
+    /**
+     * Igualdad por nombre (clave de negocio única). No mutar {@code name} mientras la instancia
+     * esté dentro de una colección hash ({@code HashSet}/{@code HashMap}), o la búsqueda en el
+     * contenedor se rompe. Los flujos actuales solo renombran una entidad recién cargada por id
+     * en un contexto propio — nunca una instancia residente en un set.
+     */
     @Override
     public boolean equals(Object o) {
         if (this == o) return true;
@@ -49,6 +55,6 @@ public class Tag {
 
     @Override
     public int hashCode() {
-        return getClass().hashCode();
+        return Objects.hash(name);
     }
 }

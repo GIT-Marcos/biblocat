@@ -1,21 +1,22 @@
 package com.biblocat.api.repository;
 
 import com.biblocat.api.entity.Source;
-
-import java.time.Instant;
-import java.util.List;
-import java.util.Optional;
-import java.util.UUID;
-
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.JpaSpecificationExecutor;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
+import java.time.Instant;
+import java.util.List;
+import java.util.Optional;
+import java.util.UUID;
+
 public interface SourceRepository extends JpaRepository<Source, UUID>, JpaSpecificationExecutor<Source> {
 
     boolean existsByPathLowerIgnoreCaseAndDeletedAtIsNull(String pathLower);
+
+    boolean existsByPathLowerIgnoreCaseAndDeletedAtIsNullAndIdNot(String pathLower, UUID id);
 
     @Query(value = """
             SELECT * FROM (

@@ -93,10 +93,10 @@ public class SourceController {
                     if (token.contains(":")) {
                         throw new InvalidPaginationParameterException("invalid sort format, use 'field' or 'field,direction'");
                     }
+                    if ((token.equalsIgnoreCase("asc") || token.equalsIgnoreCase("desc")) && i != tokens.size() - 1) {
+                        throw new InvalidPaginationParameterException("invalid sort direction: " + token);
+                    }
                     if (!ALLOWED_SORT_FIELDS.contains(token)) {
-                        if (i == tokens.size() - 1) {
-                            throw new InvalidPaginationParameterException("invalid sort direction: " + token);
-                        }
                         throw new InvalidSortFieldException(token);
                     }
                 }
