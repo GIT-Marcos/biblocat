@@ -1,6 +1,7 @@
 package com.biblocat.api.dto.request;
 
 import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Size;
 
 import java.util.UUID;
 
@@ -10,16 +11,16 @@ public record ReconcileOperation(
 
         UUID sourceId,
 
-        String name,
+        @Size(max = 255) String name,
 
-        String path,
+        @Size(max = 1024) String path,
 
-        String pathLower,
+        @Size(max = 1024) String pathLower,
 
-        String contentHash,
+        @Size(max = 64) String contentHash,
 
-        String fileFormat,
+        @Size(max = 255) String fileFormat,
 
-        String authorName
+        @Size(max = 255) String authorName
 ) {
 }

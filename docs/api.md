@@ -255,7 +255,7 @@ Procesa un batch de operaciones enviadas por el Agent. Idempotente: operaciones 
 | `RENAME`     | ✓      | ✓          | ✓      | ✓        | ✓           | —             | ✓            | opcional     |
 | `UPDATE`     | ✓      | ✓          | —      | —        | —           | ✓             | —            | —            |
 | `DELETE`     | ✓      | ✓          | —      | opcional | —           | —             | —            | —            |
-| `REACTIVATE` | ✓      | ✓          | —      | ✓        | —           | ✓             | —            | —            |
+| `REACTIVATE` | ✓      | ✓          | —      | ✓        | ✓           | ✓             | —            | —            |
 
 `fileFormat` se valida en la API: un valor desconocido o ausente genera `UNSUPPORTED_FORMAT` por operación; el resto del batch continúa procesándose.
 

@@ -20,7 +20,6 @@ import org.slf4j.LoggerFactory;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
-import org.springframework.data.jpa.domain.Specification;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionDefinition;
@@ -63,8 +62,8 @@ public class SourceService {
     @Transactional(readOnly = true)
     public Page<SourceResponse> findAll(String q, UUID authorId, UUID tagId, FileFormat format,
                                         boolean includeDeleted, Pageable pageable) {
-        Specification<Source> spec = SourceSpecifications.withFilter(q, authorId, tagId, format, includeDeleted);
-        return sourcePaginationRepository.findAll(spec, pageable).map(SourceMapper::toResponse);
+        SourceSpecifications.FilterResult filter = SourceSpecifications.withFilter(q, authorId, tagId, format, includeDeleted);
+        return sourcePaginationRepository.findAll(filter, pageable).map(SourceMapper::toResponse);
     }
 
     @Transactional(readOnly = true)

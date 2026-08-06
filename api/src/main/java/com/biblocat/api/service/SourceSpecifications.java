@@ -18,17 +18,24 @@ public final class SourceSpecifications {
     private SourceSpecifications() {
     }
 
+    public record FilterResult(
+            Specification<Source> specification,
+            boolean authorJoinNeeded
+    ) {
+    }
+
     private static String escapeLike(String value) {
         return value.replace("\\", "\\\\")
                 .replace("%", "\\%")
                 .replace("_", "\\_");
     }
 
-    public static Specification<Source> withFilter(String q, UUID authorId, UUID tagId,
-                                                   FileFormat format, boolean includeDeleted) {
-        return (root, query, cb) -> {
+    public static FilterResult withFilter(String q, UUID authorId, UUID tagId,
+                                          FileFormat format, boolean includeDeleted) {
+        boolean[] needsAuthorJoin = {false};
+
+        Specification<Source> spec = (root, query, cb) -> {
             List<Predicate> predicates = new ArrayList<>();
-            Join<Source, Author> authorJoin = null;
 
             if (!includeDeleted) {
                 predicates.add(cb.isNull(root.get("deletedAt")));
@@ -39,17 +46,21 @@ public final class SourceSpecifications {
                 Predicate namePred = cb.like(cb.lower(root.get("name")), pattern, '\\');
                 Predicate urlPred = cb.like(cb.lower(root.get("url")), pattern, '\\');
 
-                authorJoin = root.join("author", JoinType.LEFT);
+                Join<Source, Author> authorJoin = root.join("author", JoinType.LEFT);
                 Predicate authorPred = cb.like(cb.lower(authorJoin.get("name")), pattern, '\\');
 
                 predicates.add(cb.or(namePred, urlPred, authorPred));
+                needsAuthorJoin[0] = true;
             }
 
             if (authorId != null) {
-                if (authorJoin == null) {
-                    authorJoin = root.join("author", JoinType.INNER);
+                if (!needsAuthorJoin[0]) {
+                    Join<Source, Author> authorJoin = root.join("author", JoinType.INNER);
+                    predicates.add(cb.equal(authorJoin.get("id"), authorId));
+                } else {
+                    predicates.add(cb.equal(root.get("author").get("id"), authorId));
                 }
-                predicates.add(cb.equal(authorJoin.get("id"), authorId));
+                needsAuthorJoin[0] = true;
             }
 
             if (tagId != null) {
@@ -64,5 +75,7 @@ public final class SourceSpecifications {
 
             return cb.and(predicates.toArray(new Predicate[0]));
         };
+
+        return new FilterResult(spec, needsAuthorJoin[0]);
     }
 }

@@ -2,13 +2,13 @@ package com.biblocat.api.repository;
 
 import com.biblocat.api.entity.Author;
 import com.biblocat.api.entity.Source;
+import com.biblocat.api.service.SourceSpecifications;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.TypedQuery;
 import jakarta.persistence.criteria.*;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.domain.Sort;
-import org.springframework.data.jpa.domain.Specification;
 import org.springframework.data.support.PageableExecutionUtils;
 import org.springframework.stereotype.Repository;
 
@@ -24,24 +24,21 @@ public class SourcePaginationRepository {
         this.entityManager = entityManager;
     }
 
-    public Page<Source> findAll(Specification<Source> spec, Pageable pageable) {
+    public Page<Source> findAll(SourceSpecifications.FilterResult filter, Pageable pageable) {
         CriteriaBuilder cb = entityManager.getCriteriaBuilder();
 
         CriteriaQuery<Source> cq = cb.createQuery(Source.class);
         Root<Source> root = cq.from(Source.class);
-        Predicate predicate = spec.toPredicate(root, cq, cb);
+        Predicate predicate = filter.specification().toPredicate(root, cq, cb);
         if (predicate != null) {
             cq.where(predicate);
         }
 
-        Join<Source, Author> authorJoin = null;
         List<Order> orders = new ArrayList<>();
         for (Sort.Order order : pageable.getSort()) {
             Expression<?> expression;
             if (order.getProperty().equals("author.name")) {
-                if (authorJoin == null) {
-                    authorJoin = root.join("author", JoinType.LEFT);
-                }
+                Join<Source, Author> authorJoin = root.join("author", JoinType.LEFT);
                 expression = authorJoin.get("name");
             } else {
                 expression = root.get(order.getProperty());
@@ -59,7 +56,7 @@ public class SourcePaginationRepository {
 
         CriteriaQuery<Long> countCq = cb.createQuery(Long.class);
         Root<Source> countRoot = countCq.from(Source.class);
-        Predicate countPredicate = spec.toPredicate(countRoot, countCq, cb);
+        Predicate countPredicate = filter.specification().toPredicate(countRoot, countCq, cb);
         if (countPredicate != null) {
             countCq.where(countPredicate);
         }

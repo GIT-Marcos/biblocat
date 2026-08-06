@@ -88,6 +88,10 @@ public class SourceController {
                 if (last.equalsIgnoreCase("asc") || last.equalsIgnoreCase("desc")) {
                     tokens = tokens.subList(0, tokens.size() - 1);
                 }
+                if (tokens.isEmpty()) {
+                    throw new InvalidPaginationParameterException(
+                            "sort parameter missing field name, expected format: 'field' or 'field,direction'");
+                }
                 for (int i = 0; i < tokens.size(); i++) {
                     String token = tokens.get(i);
                     if (token.contains(":")) {
