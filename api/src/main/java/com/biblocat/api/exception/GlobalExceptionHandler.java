@@ -1,5 +1,6 @@
 package com.biblocat.api.exception;
 
+import jakarta.persistence.OptimisticLockException;
 import jakarta.validation.ConstraintViolationException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -110,6 +111,16 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
                 HttpStatus.BAD_REQUEST, "Validation failed: " + ex.getMessage());
         detail.setType(URI.create("https://api.biblocat.local/errors/constraint-violation"));
         detail.setTitle("Constraint Violation");
+        return detail;
+    }
+
+    @ExceptionHandler(OptimisticLockException.class)
+    ProblemDetail handle(OptimisticLockException ex) {
+        ProblemDetail detail = ProblemDetail.forStatusAndDetail(
+                HttpStatus.CONFLICT,
+                "Concurrent modification detected. Please retry the operation.");
+        detail.setType(URI.create("https://api.biblocat.local/errors/optimistic-lock"));
+        detail.setTitle("Optimistic Lock Conflict");
         return detail;
     }
 
