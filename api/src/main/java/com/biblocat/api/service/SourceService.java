@@ -32,7 +32,6 @@ import java.util.*;
 import java.util.stream.Collectors;
 
 @Service
-@Transactional
 public class SourceService {
 
     private static final Logger log = LoggerFactory.getLogger(SourceService.class);
@@ -70,7 +69,7 @@ public class SourceService {
     public SourceResponse findById(UUID id, boolean includeDeleted) {
         Source source;
         if (includeDeleted) {
-            source = sourceRepository.findByIdIncludeDeleted(id)
+            source = sourceRepository.findById(id)
                     .orElseThrow(() -> new SourceNotFoundException(id));
         } else {
             source = sourceRepository.findActiveById(id)
@@ -86,6 +85,7 @@ public class SourceService {
                 .toList();
     }
 
+    @Transactional
     public SourceResponse patch(UUID id, SourcePatchRequest request) {
         Source source = sourceRepository.findById(id)
                 .orElseThrow(() -> new SourceNotFoundException(id));
@@ -97,8 +97,9 @@ public class SourceService {
         return SourceMapper.toResponse(sourceRepository.save(source));
     }
 
+    @Transactional
     public void purge(UUID id) {
-        Source source = sourceRepository.findByIdIncludeDeleted(id)
+        Source source = sourceRepository.findById(id)
                 .orElseThrow(() -> new SourceNotFoundException(id));
 
         if (source.getDeletedAt() == null) {
@@ -108,6 +109,7 @@ public class SourceService {
         sourceRepository.hardDeleteById(id);
     }
 
+    @Transactional
     public SourceResponse replaceTags(UUID sourceId, SourceTagsRequest request) {
         Source source = sourceRepository.findById(sourceId)
                 .orElseThrow(() -> new SourceNotFoundException(sourceId));
@@ -186,7 +188,7 @@ public class SourceService {
     private void processCreate(ReconcileOperation op) {
         FileFormat format = parseFormat(op.fileFormat());
 
-        if (sourceRepository.existsByPathLowerIgnoreCaseAndDeletedAtIsNull(op.pathLower())) {
+        if (sourceRepository.existsByPathLowerAndDeletedAtIsNull(op.pathLower())) {
             throw new DuplicatePathException(op.pathLower());
         }
 
@@ -210,10 +212,10 @@ public class SourceService {
     }
 
     private void processRename(ReconcileOperation op) {
-        Source source = sourceRepository.findByIdIncludeDeleted(op.sourceId())
+        Source source = sourceRepository.findById(op.sourceId())
                 .orElseThrow(() -> new SourceNotFoundException(op.sourceId()));
 
-        if (sourceRepository.existsByPathLowerIgnoreCaseAndDeletedAtIsNullAndIdNot(op.pathLower(), op.sourceId())) {
+        if (sourceRepository.existsByPathLowerAndDeletedAtIsNullAndIdNot(op.pathLower(), op.sourceId())) {
             throw new DuplicatePathException(op.pathLower());
         }
 
@@ -234,7 +236,7 @@ public class SourceService {
     }
 
     private void processUpdate(ReconcileOperation op) {
-        Source source = sourceRepository.findByIdIncludeDeleted(op.sourceId())
+        Source source = sourceRepository.findById(op.sourceId())
                 .orElseThrow(() -> new SourceNotFoundException(op.sourceId()));
 
         source.setContentHash(op.contentHash());
@@ -242,7 +244,7 @@ public class SourceService {
     }
 
     private void processDelete(ReconcileOperation op) {
-        Source source = sourceRepository.findByIdIncludeDeleted(op.sourceId())
+        Source source = sourceRepository.findById(op.sourceId())
                 .orElseThrow(() -> new SourceNotFoundException(op.sourceId()));
 
         if (source.getDeletedAt() == null) {
@@ -252,10 +254,10 @@ public class SourceService {
     }
 
     private void processReactivate(ReconcileOperation op) {
-        Source source = sourceRepository.findByIdIncludeDeleted(op.sourceId())
+        Source source = sourceRepository.findById(op.sourceId())
                 .orElseThrow(() -> new SourceNotFoundException(op.sourceId()));
 
-        if (sourceRepository.existsByPathLowerIgnoreCaseAndDeletedAtIsNullAndIdNot(op.pathLower(), op.sourceId())) {
+        if (sourceRepository.existsByPathLowerAndDeletedAtIsNullAndIdNot(op.pathLower(), op.sourceId())) {
             throw new DuplicatePathException(op.pathLower());
         }
 

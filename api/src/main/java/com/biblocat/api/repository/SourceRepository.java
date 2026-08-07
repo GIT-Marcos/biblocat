@@ -14,9 +14,9 @@ import java.util.UUID;
 
 public interface SourceRepository extends JpaRepository<Source, UUID>, JpaSpecificationExecutor<Source> {
 
-    boolean existsByPathLowerIgnoreCaseAndDeletedAtIsNull(String pathLower);
+    boolean existsByPathLowerAndDeletedAtIsNull(String pathLower);
 
-    boolean existsByPathLowerIgnoreCaseAndDeletedAtIsNullAndIdNot(String pathLower, UUID id);
+    boolean existsByPathLowerAndDeletedAtIsNullAndIdNot(String pathLower, UUID id);
 
     @Query(value = """
             SELECT * FROM (
@@ -40,12 +40,6 @@ public interface SourceRepository extends JpaRepository<Source, UUID>, JpaSpecif
               AND s.deleted_at IS NOT NULL
             """, nativeQuery = true)
     List<Source> findOrphansByContentHash(@Param("hash") String hash);
-
-    @Query(value = """
-            SELECT s.* FROM sources s
-            WHERE s.id = :id
-            """, nativeQuery = true)
-    Optional<Source> findByIdIncludeDeleted(@Param("id") UUID id);
 
     @Query(value = """
             SELECT s.* FROM sources s
