@@ -41,7 +41,7 @@ public class AuthorService {
         String trimmed = name.strip();
         try {
             return authorRepository.findByNameIgnoreCase(trimmed)
-                    .orElseGet(() -> authorRepository.saveAndFlush(new Author(trimmed)));
+                    .orElseGet(() -> authorRepository.save(new Author(trimmed)));
         } catch (DataIntegrityViolationException e) {
             throw new DuplicateAuthorException(trimmed);
         }

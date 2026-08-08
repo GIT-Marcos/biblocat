@@ -10,6 +10,15 @@ public final class SourceMapper {
     private SourceMapper() {
     }
 
+    /**
+     * Convierte una entidad Source a SourceResponse.
+     * <p>
+     * <b>REQUIRES:</b> La sesión JPA debe estar activa para poder acceder a
+     * {@code source.getTags()} (colección {@code @ManyToMany LAZY}).
+     * Esto solo puede invocarse dentro de un contexto transaccional
+     * ({@code @Transactional}) o con un fetch eagerly/hibernate.initialize previo.
+     * Fuera de una transacción se lanza {@code LazyInitializationException}.
+     */
     public static SourceResponse toResponse(Source source) {
         return new SourceResponse(
                 source.getId(),

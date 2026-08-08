@@ -197,16 +197,15 @@ public class SourceService {
         Source source = new Source(op.name(), op.path(), op.pathLower(), op.contentHash(), format, author);
 
         List<Source> orphans = sourceRepository.findOrphansByContentHash(op.contentHash());
-        if (orphans.size() == 1) {
-            Source orphan = orphans.getFirst();
+        if (!orphans.isEmpty()) {
+            Source orphan = orphans.stream()
+                    .max(Comparator.comparing(Source::getUpdatedAt))
+                    .orElseThrow();
             source.setYear(orphan.getYear());
             source.setEdition(orphan.getEdition());
             source.setUrl(orphan.getUrl());
             source.setTags(new HashSet<>(orphan.getTags()));
             sourceRepository.hardDeleteById(orphan.getId());
-        } else if (orphans.size() > 1) {
-            log.warn("Ambiguous orphan adoption: {} orphans with hash={}, skipping transfer",
-                    orphans.size(), op.contentHash());
         }
 
         sourceRepository.save(source);

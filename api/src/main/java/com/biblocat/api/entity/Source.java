@@ -9,6 +9,7 @@ import org.springframework.data.annotation.LastModifiedDate;
 import org.springframework.data.jpa.domain.support.AuditingEntityListener;
 
 import java.time.Instant;
+import java.util.Collections;
 import java.util.HashSet;
 import java.util.Set;
 import java.util.UUID;
@@ -175,11 +176,24 @@ public class Source {
         this.deletedAt = deletedAt;
     }
 
+    /**
+     * Retorna una vista inmutable de los tags.
+     * Evita que código externo mute la colección interna bypassando validación.
+     * setTags() es el único punto de modificación controlado.
+     */
     public Set<Tag> getTags() {
-        return tags;
+        return Collections.unmodifiableSet(tags);
     }
 
+    /**
+     * Reemplaza el conjunto de tags manteniendo la misma referencia interna.
+     * clear() + addAll() evita dirty checking innecesario de Hibernate
+     * que ocurriría al reemplazar la referencia con un nuevo HashSet.
+     */
     public void setTags(Set<Tag> tags) {
-        this.tags = tags;
+        this.tags.clear();
+        if (tags != null) {
+            this.tags.addAll(tags);
+        }
     }
 }

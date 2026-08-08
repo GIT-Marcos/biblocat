@@ -44,7 +44,7 @@ public class TagService {
             throw new TagAlreadyExistsException(normalized);
         }
         try {
-            Tag tag = tagRepository.saveAndFlush(new Tag(normalized));
+            Tag tag = tagRepository.save(new Tag(normalized));
             return TagMapper.toResponse(tag);
         } catch (DataIntegrityViolationException e) {
             throw new TagAlreadyExistsException(normalized);
@@ -62,7 +62,7 @@ public class TagService {
 
         tag.setName(normalized);
         try {
-            return TagMapper.toResponse(tagRepository.saveAndFlush(tag));
+            return TagMapper.toResponse(tagRepository.save(tag));
         } catch (DataIntegrityViolationException e) {
             throw new TagAlreadyExistsException(normalized);
         }
