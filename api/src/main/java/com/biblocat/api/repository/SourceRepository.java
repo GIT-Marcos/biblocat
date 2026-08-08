@@ -48,7 +48,7 @@ public interface SourceRepository extends JpaRepository<Source, UUID>, JpaSpecif
             """, nativeQuery = true)
     Optional<Source> findActiveById(@Param("id") UUID id);
 
-    @Modifying
+    @Modifying(clearAutomatically = true)
     @Query(value = "DELETE FROM sources WHERE id = :id", nativeQuery = true)
     void hardDeleteById(@Param("id") UUID id);
 
